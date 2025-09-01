@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  
+  <!-- Product Definition -->
+  <Product Id="*" 
+           Name="Excel Data Science Visualizer" 
+           Language="1033" 
+           Version="1.0.0" 
+           Manufacturer="Excel Data Science Visualizer" 
+           UpgradeCode="12345678-1234-1234-1234-123456789ABC">
+    
+    <!-- Package Information -->
+    <Package InstallerVersion="200" 
+             Compressed="yes" 
+             InstallScope="perMachine" 
+             Description="Excel Data Science Visualizer - Interactive data exploration and visualization tool"
+             Comments="A comprehensive web-based tool for exploring and visualizing Excel datasets"
+             Keywords="Excel,Data,Visualization,Science,Analytics" />
+
+    <!-- Media and Installation Source -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Features -->
+    <Feature Id="ProductFeature" Title="Excel Data Science Visualizer" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="PythonDependencies" />
+      <ComponentGroupRef Id="NodeDependencies" />
+      <ComponentGroupRef Id="StartMenuShortcuts" />
+      <ComponentGroupRef Id="DesktopShortcuts" />
+    </Feature>
+
+    <!-- Prerequisites Check -->
+    <Property Id="PYTHONINSTALLED">
+      <RegistrySearch Id="PythonRegistry" Root="HKLM" 
+                      Key="SOFTWARE\Python\PythonCore\3.11\InstallPath" 
+                      Type="raw" />
+    </Property>
+
+    <Property Id="NODEJSINSTALLED">
+      <RegistrySearch Id="NodeJSRegistry" Root="HKLM" 
+                      Key="SOFTWARE\Node.js" 
+                      Type="raw" />
+    </Property>
+
+    <!-- Launch Conditions -->
+    <Condition Message="This application requires Windows 10 or later.">
+      <![CDATA[Installed OR (VersionNT >= 1000)]]>
+    </Condition>
+
+    <!-- UI Configuration -->
+    <UIRef Id="WixUI_FeatureTree" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+    
+    <!-- License Agreement -->
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+    
+    <!-- Installation Directory Dialog -->
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <!-- Custom Actions for Post-Install Setup -->
+    <CustomAction Id="SetupPythonEnv" 
+                  Directory="INSTALLFOLDER" 
+                  ExeCommand="cmd.exe /c &quot;python -m venv venv&quot;"
+                  Execute="deferred" 
+                  Impersonate="no" 
+                  Return="check" />
+
+    <CustomAction Id="InstallPythonDeps" 
+                  Directory="INSTALLFOLDER" 
+                  ExeCommand="cmd.exe /c &quot;venv\Scripts\activate.bat &amp;&amp; python -m pip install --upgrade pip &amp;&amp; pip install -r requirements.txt&quot;"
+                  Execute="deferred" 
+                  Impersonate="no" 
+                  Return="check" />
+
+    <CustomAction Id="InstallNodeDeps" 
+                  Directory="INSTALLFOLDER" 
+                  ExeCommand="cmd.exe /c &quot;npm install&quot;"
+                  Execute="deferred" 
+                  Impersonate="no" 
+                  Return="check" />
+
+    <!-- Install Sequence -->
+    <InstallExecuteSequence>
+      <Custom Action="SetupPythonEnv" After="InstallFiles">
+        <![CDATA[NOT REMOVE]]>
+      </Custom>
+      <Custom Action="InstallPythonDeps" After="SetupPythonEnv">
+        <![CDATA[NOT REMOVE]]>
+      </Custom>
+      <Custom Action="InstallNodeDeps" After="InstallPythonDeps">
+        <![CDATA[NOT REMOVE]]>
+      </Custom>
+    </InstallExecuteSequence>
+
+  </Product>
+
+  <!-- Directory Structure -->
+  <Fragment>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLFOLDER" Name="Excel Data Science Visualizer" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Excel Data Science Visualizer" />
+      </Directory>
+      <Directory Id="DesktopFolder" Name="Desktop" />
+    </Directory>
+  </Fragment>
+
+  <!-- Main Application Components -->
+  <Fragment>
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      
+      <!-- Main Application Files -->
+      <Component Id="MainAppFiles" Guid="11111111-1111-1111-1111-111111111111">
+        <File Id="PackageJson" Source="package.json" KeyPath="yes" />
+        <File Id="Requirements" Source="requirements.txt" />
+        <File Id="StartBackend" Source="start_backend.py" />
+        <File Id="InstallLinux" Source="install-linux.sh" />
+        <File Id="InstallMacOS" Source="install-macos.sh" />
+        <File Id="InstallWindowsBat" Source="install-windows.bat" />
+        <File Id="InstallWindowsPs1" Source="install-windows.ps1" />
+        <File Id="TestData" Source="test_data.xlsx" />
+        <File Id="TestUpload" Source="test_upload.py" />
+        <File Id="TestFiltering" Source="test_filtering.py" />
+        <File Id="ReadMe" Source="README.md" />
+        <File Id="Installation" Source="INSTALLATION.md" />
+        <File Id="QuickStart" Source="QUICK_START.md" />
+        <File Id="ClaudeMd" Source="CLAUDE.md" />
+      </Component>
+
+      <!-- Backend Components -->
+      <Component Id="BackendFiles" Guid="22222222-2222-2222-2222-222222222222">
+        <File Id="BackendApp" Source="backend\app.py" />
+      </Component>
+
+      <!-- Frontend Source Components -->
+      <Component Id="FrontendSrcFiles" Guid="33333333-3333-3333-3333-333333333333">
+        <File Id="AppJs" Source="src\App.js" />
+        <File Id="IndexJs" Source="src\index.js" />
+        <File Id="IndexCss" Source="src\index.css" />
+      </Component>
+
+      <!-- Frontend Components -->
+      <Component Id="FrontendComponentFiles" Guid="44444444-4444-4444-4444-444444444444">
+        <File Id="FileUpload" Source="src\components\FileUpload.js" />
+        <File Id="DataPreview" Source="src\components\DataPreview.js" />
+        <File Id="ColumnManager" Source="src\components\ColumnManager.js" />
+        <File Id="FilterManager" Source="src\components\FilterManager.js" />
+        <File Id="PlotGenerator" Source="src\components\PlotGenerator.js" />
+      </Component>
+
+      <!-- Filter Components -->
+      <Component Id="FilterFiles" Guid="55555555-5555-5555-5555-555555555555">
+        <File Id="BooleanFilter" Source="src\components\filters\BooleanFilter.js" />
+        <File Id="CategoricalFilter" Source="src\components\filters\CategoricalFilter.js" />
+        <File Id="NumericFilter" Source="src\components\filters\NumericFilter.js" />
+        <File Id="TextFilter" Source="src\components\filters\TextFilter.js" />
+      </Component>
+
+      <!-- Public Files -->
+      <Component Id="PublicFiles" Guid="66666666-6666-6666-6666-666666666666">
+        <File Id="IndexHtml" Source="public\index.html" />
+      </Component>
+
+      <!-- Runtime Scripts -->
+      <Component Id="RuntimeScripts" Guid="77777777-7777-7777-7777-777777777777">
+        <File Id="RunnerScript" Source="run.ps1" />
+        <File Id="RunnerBatch" Source="run.bat" />
+        <File Id="StartFrontend" Source="start_frontend.sh" />
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
+
+  <!-- Python Dependencies Placeholder -->
+  <Fragment>
+    <ComponentGroup Id="PythonDependencies" Directory="INSTALLFOLDER">
+      <Component Id="PythonEnvSetup" Guid="88888888-8888-8888-8888-888888888888">
+        <CreateFolder />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <!-- Node Dependencies Placeholder -->
+  <Fragment>
+    <ComponentGroup Id="NodeDependencies" Directory="INSTALLFOLDER">
+      <Component Id="NodeEnvSetup" Guid="99999999-9999-9999-9999-999999999999">
+        <CreateFolder />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <!-- Start Menu Shortcuts -->
+  <Fragment>
+    <ComponentGroup Id="StartMenuShortcuts" Directory="ApplicationProgramsFolder">
+      <Component Id="ApplicationShortcut" Guid="AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA">
+        <Shortcut Id="ApplicationStartMenuShortcut"
+                  Name="Excel Data Science Visualizer"
+                  Description="Launch Excel Data Science Visualizer"
+                  Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
+                  Arguments="-ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]run.ps1&quot; start"
+                  WorkingDirectory="INSTALLFOLDER" />
+        
+        <Shortcut Id="UninstallProduct"
+                  Name="Uninstall Excel Data Science Visualizer"
+                  Description="Uninstalls Excel Data Science Visualizer"
+                  Target="[System64Folder]msiexec.exe"
+                  Arguments="/x [ProductCode]" />
+        
+        <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" 
+                       Key="Software\ExcelDataScienceVisualizer" 
+                       Name="installed" 
+                       Type="integer" 
+                       Value="1" 
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <!-- Desktop Shortcuts -->
+  <Fragment>
+    <ComponentGroup Id="DesktopShortcuts" Directory="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB">
+        <Shortcut Id="ApplicationDesktopShortcut"
+                  Name="Excel Data Science Visualizer"
+                  Description="Launch Excel Data Science Visualizer"
+                  Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
+                  Arguments="-ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]run.ps1&quot; start"
+                  WorkingDirectory="INSTALLFOLDER" />
+        
+        <RegistryValue Root="HKCU" 
+                       Key="Software\ExcelDataScienceVisualizer" 
+                       Name="desktop" 
+                       Type="integer" 
+                       Value="1" 
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>
