@@ -97,7 +97,7 @@ install_python() {
         
         # Check if version is 3.7+
         if python3 -c "import sys; exit(0 if sys.version_info >= (3, 7) else 1)" 2>/dev/null; then
-            print_success "Python version is compatible (3.7+)"
+            print_success "Python version is compatible (3.7+, tested up to 3.12)"
         else
             print_warning "Python 3.7+ recommended. Current version: $PYTHON_VERSION"
             print_status "Installing latest Python via Homebrew..."

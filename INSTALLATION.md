@@ -16,14 +16,14 @@ This guide provides step-by-step installation instructions for Linux, macOS, and
 
 ### Minimum Requirements
 - **Operating System**: Linux (Ubuntu 18.04+, CentOS 7+, etc.), macOS 10.14+, or Windows 10+
-- **Python**: 3.7 or higher
+- **Python**: 3.7 or higher (tested up to 3.12)
 - **Node.js**: 14.0 or higher
 - **RAM**: 4GB minimum, 8GB recommended
 - **Storage**: 1GB free space
 - **Internet**: Required for initial setup
 
 ### Recommended Requirements
-- **Python**: 3.9+
+- **Python**: 3.9+ (tested up to 3.12)
 - **Node.js**: 18.0+ (LTS)
 - **RAM**: 8GB or more
 - **Storage**: 2GB free space

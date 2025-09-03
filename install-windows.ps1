@@ -92,7 +92,7 @@ function Install-Python {
         try {
             $versionCheck = python -c "import sys; exit(0 if sys.version_info >= (3, 7) else 1)" 2>$null
             if ($LASTEXITCODE -eq 0) {
-                Write-Success "Python version is compatible (3.7+)"
+                Write-Success "Python version is compatible (3.7+, tested up to 3.12)"
             } else {
                 Write-Warning "Python 3.7+ recommended. Current version may not be compatible."
             }
