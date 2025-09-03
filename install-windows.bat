@@ -16,7 +16,7 @@ echo [INFO] Checking system requirements...
 REM Check for Python
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [WARNING] Python not found. Please install Python 3.7+ from https://python.org
+    echo [WARNING] Python not found. Please install Python 3.7+ (tested up to 3.12) from https://python.org
     echo [INFO] Make sure to check "Add Python to PATH" during installation
     echo.
     echo Press any key to continue after installing Python...
@@ -143,7 +143,7 @@ echo [ERROR] Installation failed!
 echo Please check the error messages above and try again.
 echo.
 echo Common solutions:
-echo - Make sure Python 3.7+ is installed and in PATH
+echo - Make sure Python 3.7+ (tested up to 3.12) is installed and in PATH
 echo - Make sure Node.js 14+ is installed and in PATH
 echo - Run as Administrator if permission errors occur
 echo - Check your internet connection for downloading dependencies

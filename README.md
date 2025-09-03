@@ -66,7 +66,7 @@ Choose your operating system:
 <summary>Click to expand manual installation steps</summary>
 
 ### Prerequisites
-- Python 3.7+
+- Python 3.7+ (tested up to 3.12)
 - Node.js 14+
 - 4GB RAM (8GB recommended)
 
@@ -211,7 +211,7 @@ MIT License - see LICENSE file for details
 ### Common Issues
 
 **Backend won't start**
-- Ensure Python 3.7+ is installed
+- Ensure Python 3.7+ is installed (tested up to 3.12)
 - Check if all requirements are installed: `pip install -r requirements.txt`
 - Verify port 5000 is available
 
