@@ -14,24 +14,23 @@ import API_BASE_URL from '../../config';
 const NumericFilter = ({ column, value, onChange, onError }) => {
   const [options, setOptions] = useState({});
   const [range, setRange] = useState([0, 100]);
-  const [minValue, setMinValue] = useState('');
-  const [maxValue, setMaxValue] = useState('');
+  const [pendingRange, setPendingRange] = useState([0, 100]);
   const [loading, setLoading] = useState(true);
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
     loadFilterOptions();
   }, [column]);
 
   useEffect(() => {
-    if (value) {
-      setMinValue(value.min?.toString() || '');
-      setMaxValue(value.max?.toString() || '');
-      if (options.min !== undefined && options.max !== undefined) {
-        setRange([
-          value.min !== undefined ? value.min : options.min,
-          value.max !== undefined ? value.max : options.max
-        ]);
-      }
+    if (options.min !== undefined && options.max !== undefined) {
+      const initialRange = [
+        value?.min ?? options.min,
+        value?.max ?? options.max,
+      ];
+      setRange(initialRange);
+      setPendingRange(initialRange);
+      setIsDirty(false);
     }
   }, [value, options]);
 
@@ -41,73 +40,57 @@ const NumericFilter = ({ column, value, onChange, onError }) => {
       const response = await axios.get(`${API_BASE_URL}/filter-options/${column}`);
       const opts = response.data;
       setOptions(opts);
-      
-      if (!value) {
-        setRange([opts.min, opts.max]);
-        setMinValue(opts.min.toString());
-        setMaxValue(opts.max.toString());
-      }
     } catch (error) {
-      onError && onError('Failed to load filter options');
+      onError?.('Failed to load filter options');
       console.error('Error loading filter options:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRangeChange = (event, newValue) => {
-    setRange(newValue);
-    setMinValue(newValue[0].toString());
-    setMaxValue(newValue[1].toString());
-    updateFilter(newValue[0], newValue[1]);
+  const handleSliderChange = (event, newValue) => {
+    setPendingRange(newValue);
+    setIsDirty(true);
   };
 
-  const handleMinChange = (event) => {
-    const val = event.target.value;
-    setMinValue(val);
-    
-    const numVal = parseFloat(val);
-    if (!isNaN(numVal)) {
-      const newMax = Math.max(numVal, range[1]);
-      setRange([numVal, newMax]);
-      updateFilter(numVal, newMax);
+  const handleMinInputChange = (event) => {
+    const newMin = event.target.value === '' ? options.min : parseFloat(event.target.value);
+    if (!isNaN(newMin) && newMin <= pendingRange[1]) {
+      setPendingRange([newMin, pendingRange[1]]);
+      setIsDirty(true);
     }
   };
 
-  const handleMaxChange = (event) => {
-    const val = event.target.value;
-    setMaxValue(val);
-    
-    const numVal = parseFloat(val);
-    if (!isNaN(numVal)) {
-      const newMin = Math.min(range[0], numVal);
-      setRange([newMin, numVal]);
-      updateFilter(newMin, numVal);
+  const handleMaxInputChange = (event) => {
+    const newMax = event.target.value === '' ? options.max : parseFloat(event.target.value);
+    if (!isNaN(newMax) && newMax >= pendingRange[0]) {
+      setPendingRange([pendingRange[0], newMax]);
+      setIsDirty(true);
     }
   };
 
-  const updateFilter = (min, max) => {
-    if (options.min !== undefined && options.max !== undefined) {
-      if (min <= options.min && max >= options.max) {
-        // No filtering needed if range covers all data
-        onChange(null);
-      } else {
-        onChange({
-          type: 'numeric',
-          min: min > options.min ? min : undefined,
-          max: max < options.max ? max : undefined
-        });
-      }
+  const handleApply = () => {
+    setRange(pendingRange);
+
+    const [min, max] = pendingRange;
+    if (min <= options.min && max >= options.max) {
+      onChange(null);
+    } else {
+      onChange({
+        type: 'numeric',
+        min: min > options.min ? min : undefined,
+        max: max < options.max ? max : undefined,
+      });
     }
+    setIsDirty(false);
   };
 
   const resetFilter = () => {
-    if (options.min !== undefined && options.max !== undefined) {
-      setRange([options.min, options.max]);
-      setMinValue(options.min.toString());
-      setMaxValue(options.max.toString());
-      onChange(null);
-    }
+    const fullRange = [options.min, options.max];
+    setPendingRange(fullRange);
+    setRange(fullRange);
+    onChange(null);
+    setIsDirty(false);
   };
 
   if (loading) {
@@ -122,61 +105,42 @@ const NumericFilter = ({ column, value, onChange, onError }) => {
         Filter by numeric range
       </Typography>
 
-      <Box sx={{ mb: 3 }}>
+      <Box sx={{ mb: 2 }}>
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-              <Chip
-                size="small"
-                label={`Min: ${options.min}`}
-                variant="outlined"
-              />
-              <Chip
-                size="small"
-                label={`Max: ${options.max}`}
-                variant="outlined"
-              />
+              <Chip size="small" label={`Min: ${options.min}`} variant="outlined" />
+              <Chip size="small" label={`Max: ${options.max}`} variant="outlined" />
             </Box>
             <Slider
-              value={range}
-              onChange={handleRangeChange}
+              value={pendingRange}
+              onChange={handleSliderChange}
               min={options.min}
               max={options.max}
               step={(options.max - options.min) / 100}
               valueLabelDisplay="auto"
-              sx={{ mb: 2 }}
             />
           </Grid>
-          
           <Grid item xs={6}>
             <TextField
               label="Min Value"
               type="number"
-              value={minValue}
-              onChange={handleMinChange}
+              value={pendingRange[0]}
+              onChange={handleMinInputChange}
               fullWidth
               size="small"
-              inputProps={{
-                min: options.min,
-                max: options.max,
-                step: 'any'
-              }}
+              inputProps={{ min: options.min, max: options.max, step: 'any' }}
             />
           </Grid>
-          
           <Grid item xs={6}>
             <TextField
               label="Max Value"
               type="number"
-              value={maxValue}
-              onChange={handleMaxChange}
+              value={pendingRange[1]}
+              onChange={handleMaxInputChange}
               fullWidth
               size="small"
-              inputProps={{
-                min: options.min,
-                max: options.max,
-                step: 'any'
-              }}
+              inputProps={{ min: options.min, max: options.max, step: 'any' }}
             />
           </Grid>
         </Grid>
@@ -188,13 +152,20 @@ const NumericFilter = ({ column, value, onChange, onError }) => {
             Mean: {options.mean?.toFixed(2)}, Std: {options.std?.toFixed(2)}
           </Typography>
         </Box>
-        <Button
-          size="small"
-          onClick={resetFilter}
-          disabled={!isFiltered}
-        >
-          Reset Range
-        </Button>
+        <Box>
+          <Button size="small" onClick={resetFilter} disabled={!isFiltered && !isDirty}>
+            Reset
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            onClick={handleApply}
+            disabled={!isDirty}
+            sx={{ ml: 1 }}
+          >
+            Apply
+          </Button>
+        </Box>
       </Box>
 
       {isFiltered && (
