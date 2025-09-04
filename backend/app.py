@@ -57,30 +57,50 @@ class DataProcessor:
     def detect_column_types(self):
         self.column_info = {}
         for col in self.data.columns:
-            col_data = self.data[col].dropna()
-            if len(col_data) == 0:
-                self.column_info[col] = {'type': 'empty', 'has_lists': False}
+            col_data = self.data[col]
+            col_data_non_null = col_data.dropna()
+
+            if len(col_data_non_null) == 0:
+                self.column_info[col] = {'type': 'empty', 'has_lists': False, 'unique_values': 0, 'null_count': int(self.data[col].isna().sum())}
                 continue
+
+            has_lists = self.detect_lists_or_sets(col_data_non_null)
             
-            has_lists = self.detect_lists_or_sets(col_data)
-            
-            if col_data.dtype in ['int64', 'float64']:
+            # Default to text
+            col_type = 'text'
+
+            # Check for numeric types (native or convertible)
+            if col_data_non_null.dtype in ['int64', 'float64']:
                 col_type = 'numeric'
-            elif col_data.dtype == 'bool':
-                col_type = 'boolean'
-            elif pd.api.types.is_datetime64_any_dtype(col_data):
-                col_type = 'datetime'
-            else:
-                unique_ratio = len(col_data.unique()) / len(col_data)
-                if unique_ratio < 0.1 or len(col_data.unique()) < 20:
-                    col_type = 'categorical'
-                else:
-                    col_type = 'text'
+            elif col_data_non_null.dtype == 'object':
+                # Attempt to convert to numeric
+                numeric_series = pd.to_numeric(col_data_non_null, errors='coerce')
+                # If all non-null values were converted to numbers, it's numeric
+                if not numeric_series.isnull().any():
+                    self.data[col] = pd.to_numeric(self.data[col], errors='coerce')
+                    col_type = 'numeric'
+
+            # If not determined to be numeric, check other types
+            if col_type != 'numeric':
+                if col_data_non_null.dtype == 'bool':
+                    col_type = 'boolean'
+                elif pd.api.types.is_datetime64_any_dtype(col_data_non_null):
+                    col_type = 'datetime'
+                else: # It's a text-like column, let's see if it's categorical
+                    num_unique = len(col_data_non_null.unique())
+                    total_rows = len(self.data)
+
+                    if num_unique < 4:
+                        col_type = 'categorical'
+                    elif (num_unique / total_rows) < 0.1:
+                        col_type = 'categorical'
+                    else:
+                        col_type = 'text'
             
             self.column_info[col] = {
                 'type': col_type,
                 'has_lists': has_lists,
-                'unique_values': len(col_data.unique()),
+                'unique_values': len(col_data_non_null.unique()),
                 'null_count': self.data[col].isna().sum()
             }
     
