@@ -11,6 +11,29 @@ import ast
 from io import BytesIO
 import base64
 import os
+import shelve
+import hashlib
+from datetime import datetime, timedelta
+
+# Cache configuration
+CACHE_DIR = "/tmp/excel_visualizer_cache"
+CACHE_FILE = "column_type_cache"
+CACHE_TTL_DAYS = 2
+
+def get_cache():
+    """Opens and returns the cache shelf."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    return shelve.open(os.path.join(CACHE_DIR, CACHE_FILE))
+
+def cleanup_cache():
+    """Removes expired entries from the cache."""
+    with get_cache() as cache:
+        expired_keys = [
+            key for key, value in cache.items()
+            if datetime.now() - value['timestamp'] > timedelta(days=CACHE_TTL_DAYS)
+        ]
+        for key in expired_keys:
+            del cache[key]
 
 def convert_to_json_serializable(obj):
     """Convert pandas/numpy data types to JSON serializable types"""
@@ -43,6 +66,7 @@ class DataProcessor:
         self.filtered_data = None
         self.column_info = {}
         self.active_filters = {}
+        self.file_hash = None
     
     def load_excel(self, file_content):
         try:
@@ -387,7 +411,22 @@ def upload_file():
         return jsonify({'error': 'File must be an Excel file (.xlsx or .xls)'}), 400
     
     file_content = file.read()
+    file_hash = hashlib.sha256(file_content).hexdigest()
+    data_processor.file_hash = file_hash
+
     if data_processor.load_excel(file_content):
+        cleanup_cache()
+        with get_cache() as cache:
+            if file_hash in cache:
+                # Load column types from cache
+                data_processor.column_info = cache[file_hash]['column_info']
+            else:
+                # Store newly detected types in cache
+                cache[file_hash] = {
+                    'column_info': data_processor.column_info,
+                    'timestamp': datetime.now()
+                }
+
         response_data = {
             'success': True,
             'columns': list(data_processor.data.columns),
@@ -395,7 +434,6 @@ def upload_file():
             'shape': data_processor.data.shape,
             'preview': data_processor.data.head(10).to_dict('records')
         }
-        # Convert to JSON serializable format
         response_data = convert_to_json_serializable(response_data)
         return jsonify(response_data)
     else:
@@ -425,6 +463,16 @@ def update_column_type():
         return jsonify({'error': 'Column not found'}), 400
     
     data_processor.column_info[column]['type'] = new_type
+
+    # Update the cache
+    if data_processor.file_hash:
+        with get_cache() as cache:
+            if data_processor.file_hash in cache:
+                cache[data_processor.file_hash] = {
+                    'column_info': data_processor.column_info,
+                    'timestamp': datetime.now()
+                }
+
     return jsonify({'success': True})
 
 @app.route('/expand-column', methods=['POST'])
