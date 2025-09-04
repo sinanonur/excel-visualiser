@@ -8,7 +8,8 @@ import os
 
 def test_upload():
     """Test the upload endpoint"""
-    url = 'http://localhost:5001/upload'
+    base_url = os.environ.get('BACKEND_URL', 'http://localhost:5001')
+    url = f'{base_url}/upload'
     
     # Check if test_data.xlsx exists
     if not os.path.exists('test_data.xlsx'):

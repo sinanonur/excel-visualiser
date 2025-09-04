@@ -9,6 +9,7 @@ import {
   Chip
 } from '@mui/material';
 import axios from 'axios';
+import API_BASE_URL from '../../config';
 
 const NumericFilter = ({ column, value, onChange, onError }) => {
   const [options, setOptions] = useState({});
@@ -37,7 +38,7 @@ const NumericFilter = ({ column, value, onChange, onError }) => {
   const loadFilterOptions = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`http://localhost:5001/filter-options/${column}`);
+      const response = await axios.get(`${API_BASE_URL}/filter-options/${column}`);
       const opts = response.data;
       setOptions(opts);
       

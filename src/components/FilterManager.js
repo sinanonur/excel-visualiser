@@ -18,6 +18,7 @@ import {
   Clear
 } from '@mui/icons-material';
 import axios from 'axios';
+import API_BASE_URL from '../config';
 import CategoricalFilter from './filters/CategoricalFilter';
 import NumericFilter from './filters/NumericFilter';
 import TextFilter from './filters/TextFilter';
@@ -38,7 +39,7 @@ const FilterManager = ({ data, columnInfo, onFiltersApplied, onError }) => {
 
   const loadFilterStatus = async () => {
     try {
-      const response = await axios.get('http://localhost:5001/filter-status');
+      const response = await axios.get(`${API_BASE_URL}/filter-status`);
       const status = response.data;
       setFilterStats(status);
       setActiveFilters(status.active_filters || {});
@@ -63,7 +64,7 @@ const FilterManager = ({ data, columnInfo, onFiltersApplied, onError }) => {
 
   const applyFilters = async () => {
     try {
-      const response = await axios.post('http://localhost:5001/apply-filters', {
+      const response = await axios.post(`${API_BASE_URL}/apply-filters`, {
         filters: activeFilters
       });
       
@@ -83,7 +84,7 @@ const FilterManager = ({ data, columnInfo, onFiltersApplied, onError }) => {
 
   const clearAllFilters = async () => {
     try {
-      const response = await axios.post('http://localhost:5001/clear-filters');
+      const response = await axios.post(`${API_BASE_URL}/clear-filters`);
       
       if (response.data.success) {
         setActiveFilters({});

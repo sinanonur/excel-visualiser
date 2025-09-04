@@ -9,6 +9,7 @@ import {
   Button
 } from '@mui/material';
 import axios from 'axios';
+import API_BASE_URL from '../../config';
 
 const BooleanFilter = ({ column, value, onChange, onError }) => {
   const [options, setOptions] = useState({});
@@ -33,7 +34,7 @@ const BooleanFilter = ({ column, value, onChange, onError }) => {
   const loadFilterOptions = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`http://localhost:5001/filter-options/${column}`);
+      const response = await axios.get(`${API_BASE_URL}/filter-options/${column}`);
       setOptions(response.data);
     } catch (error) {
       onError && onError('Failed to load filter options');

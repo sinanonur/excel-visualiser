@@ -3,10 +3,11 @@
 import requests
 import json
 import sys
+import os
 
 def test_filtering_endpoints():
     """Test the filtering functionality"""
-    base_url = 'http://localhost:5001'
+    base_url = os.environ.get('BACKEND_URL', 'http://localhost:5001')
     
     print("🧪 Testing filtering functionality...")
     

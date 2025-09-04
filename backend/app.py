@@ -10,6 +10,7 @@ import re
 import ast
 from io import BytesIO
 import base64
+import os
 
 def convert_to_json_serializable(obj):
     """Convert pandas/numpy data types to JSON serializable types"""
@@ -520,4 +521,5 @@ def get_filter_status():
     return jsonify(convert_to_json_serializable(response_data))
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    host = os.environ.get('FLASK_HOST', '0.0.0.0')
+    app.run(host=host, debug=True, port=5001)

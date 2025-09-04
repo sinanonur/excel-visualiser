@@ -9,6 +9,7 @@ import {
 } from '@mui/material';
 import { CloudUpload } from '@mui/icons-material';
 import axios from 'axios';
+import API_BASE_URL from '../config';
 
 const FileUpload = ({ onDataLoad, onError }) => {
   const [isUploading, setIsUploading] = React.useState(false);
@@ -22,7 +23,7 @@ const FileUpload = ({ onDataLoad, onError }) => {
     formData.append('file', file);
 
     try {
-      const response = await axios.post('http://localhost:5001/upload', formData, {
+      const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

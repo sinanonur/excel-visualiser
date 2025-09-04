@@ -20,6 +20,7 @@ import {
 } from '@mui/material';
 import { ExpandMore, List, Settings } from '@mui/icons-material';
 import axios from 'axios';
+import API_BASE_URL from '../config';
 
 const ColumnManager = ({ data, columnInfo, onColumnInfoUpdate, onError }) => {
   const [expandDialog, setExpandDialog] = useState({ open: false, column: null });
@@ -27,7 +28,7 @@ const ColumnManager = ({ data, columnInfo, onColumnInfoUpdate, onError }) => {
 
   const handleTypeChange = async (column, newType) => {
     try {
-      await axios.post('http://localhost:5001/update-column-type', {
+      await axios.post(`${API_BASE_URL}/update-column-type`, {
         column: column,
         type: newType
       });
@@ -43,7 +44,7 @@ const ColumnManager = ({ data, columnInfo, onColumnInfoUpdate, onError }) => {
   const handleExpandColumn = async (column) => {
     setIsExpanding(true);
     try {
-      const response = await axios.post('http://localhost:5001/expand-column', {
+      const response = await axios.post(`${API_BASE_URL}/expand-column`, {
         column: column
       });
       
