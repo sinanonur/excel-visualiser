@@ -94,14 +94,23 @@ class DataProcessor:
             col_type = 'text'
 
             # Check for numeric types (native or convertible)
+            non_numeric_examples = []
             if col_data_non_null.dtype in ['int64', 'float64']:
                 col_type = 'numeric'
             elif col_data_non_null.dtype == 'object':
                 # Attempt to convert to numeric
-                numeric_series = pd.to_numeric(col_data_non_null, errors='coerce')
-                # If all non-null values were converted to numbers, it's numeric
-                if not numeric_series.isnull().any():
-                    self.data[col] = pd.to_numeric(self.data[col], errors='coerce')
+                numeric_series = pd.to_numeric(self.data[col], errors='coerce')
+
+                # Check for non-numeric values
+                failed_to_convert = self.data[col][numeric_series.isnull() & self.data[col].notnull()]
+
+                # If a small percentage failed, we can still consider it numeric
+                if len(failed_to_convert) > 0 and len(failed_to_convert) / len(col_data_non_null) < 0.1:
+                    non_numeric_examples = failed_to_convert.unique().astype(str).tolist()[:5]
+                    self.data[col] = numeric_series
+                    col_type = 'numeric'
+                elif len(failed_to_convert) == 0:
+                    self.data[col] = numeric_series
                     col_type = 'numeric'
 
             # If not determined to be numeric, check other types
@@ -125,7 +134,8 @@ class DataProcessor:
                 'type': col_type,
                 'has_lists': has_lists,
                 'unique_values': len(col_data_non_null.unique()),
-                'null_count': self.data[col].isna().sum()
+                'null_count': self.data[col].isna().sum(),
+                'non_numeric_examples': non_numeric_examples
             }
     
     def detect_lists_or_sets(self, series):
@@ -387,6 +397,24 @@ class DataProcessor:
                         return None
                 else:
                     return None
+            elif plot_type == 'correlation':
+                if len(columns) < 2:
+                    return None
+
+                # Ensure all selected columns are numeric
+                if not all(self.column_info[col]['type'] == 'numeric' for col in columns):
+                    return None
+
+                corr_matrix = self.data[columns].corr()
+
+                fig = go.Figure(data=go.Heatmap(
+                    z=corr_matrix.values,
+                    x=corr_matrix.columns,
+                    y=corr_matrix.columns,
+                    colorscale='Viridis'
+                ))
+
+                fig.update_layout(title='Correlation Matrix')
             else:
                 return None
             
@@ -396,7 +424,64 @@ class DataProcessor:
             print(f"Error generating plot: {e}")
             return None
 
+    def get_column_statistics(self, column):
+        """Get detailed statistics for a single column"""
+        if column not in self.data.columns:
+            return None
+
+        col_info = self.column_info.get(column, {})
+        col_type = col_info.get('type')
+        col_data = self.data[column].dropna()
+
+        stats = {
+            'column': column,
+            'type': col_type,
+            'total_rows': len(self.data),
+            'non_null_rows': len(col_data),
+            'null_rows': int(self.data[column].isnull().sum())
+        }
+
+        if col_type == 'numeric':
+            desc = col_data.describe().to_dict()
+            stats.update(desc)
+
+            # Outliers (simple method using IQR)
+            q1 = desc['25%']
+            q3 = desc['75%']
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+
+            outliers = col_data[(col_data < lower_bound) | (col_data > upper_bound)]
+            stats['outliers'] = outliers.head(5).tolist()
+            stats['num_outliers'] = len(outliers)
+
+        elif col_type == 'categorical':
+            value_counts = col_data.value_counts()
+            percentages = col_data.value_counts(normalize=True) * 100
+
+            stats['value_counts'] = value_counts.head(20).to_dict()
+            stats['percentages'] = percentages.head(20).to_dict()
+            stats['num_unique'] = len(value_counts)
+
+        elif col_type == 'text':
+             stats['num_unique'] = col_data.nunique()
+
+        return stats
+
 data_processor = DataProcessor()
+
+@app.route('/statistics/<column>', methods=['GET'])
+def get_statistics(column):
+    if data_processor.data is None:
+        return jsonify({'error': 'No data loaded'}), 400
+
+    stats = data_processor.get_column_statistics(column)
+
+    if stats:
+        return jsonify(convert_to_json_serializable(stats))
+    else:
+        return jsonify({'error': 'Could not generate statistics for the column'}), 400
 
 @app.route('/upload', methods=['POST'])
 def upload_file():

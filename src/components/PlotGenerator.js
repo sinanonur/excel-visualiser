@@ -47,7 +47,8 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
     { value: 'histogram', label: '📊 Histogram', description: 'Distribution of numeric data', minCols: 1, maxCols: 1, types: ['numeric'] },
     { value: 'box', label: '📦 Box Plot', description: 'Statistical summary of numeric data', minCols: 1, maxCols: 2, types: ['numeric', 'categorical'] },
     { value: 'bar', label: '📈 Bar Chart', description: 'Categorical data visualization', minCols: 1, maxCols: 2, types: ['categorical'] },
-    { value: 'scatter', label: '🔵 Scatter Plot', description: 'Relationship between two numeric variables', minCols: 2, maxCols: 2, types: ['numeric'] }
+    { value: 'scatter', label: '🔵 Scatter Plot', description: 'Relationship between two numeric variables', minCols: 2, maxCols: 2, types: ['numeric'] },
+    { value: 'correlation', label: '🔗 Correlation Chart', description: 'Visualize the correlation between multiple numeric variables.', minCols: 2, maxCols: 10, types: ['numeric'] }
   ];
 
   const getAvailableColumns = (requiredTypes) => {
@@ -140,7 +141,8 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
       'histogram': '📊',
       'box': '📦',
       'bar': '📈',
-      'scatter': '🔵'
+      'scatter': '🔵',
+      'correlation': '🔗'
     };
     return icons[type] || '📊';
   };

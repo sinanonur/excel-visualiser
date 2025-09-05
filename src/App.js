@@ -16,6 +16,7 @@ import DataPreview from './components/DataPreview';
 import ColumnManager from './components/ColumnManager';
 import PlotGenerator from './components/PlotGenerator';
 import FilterManager from './components/FilterManager';
+import StatisticsViewer from './components/StatisticsViewer';
 
 const theme = createTheme({
   palette: {
@@ -115,6 +116,7 @@ function App() {
                   <Tab label="Column Management" />
                   <Tab label="Filters" />
                   <Tab label="Visualizations" />
+                  <Tab label="Statistics" />
                 </Tabs>
               </Box>
               
@@ -134,6 +136,13 @@ function App() {
                 />
               </TabPanel>
               
+              <TabPanel value={tabValue} index={4}>
+                <StatisticsViewer
+                  columnInfo={columnInfo}
+                  onError={handleError}
+                />
+              </TabPanel>
+
               <TabPanel value={tabValue} index={2}>
                 <FilterManager
                   data={data}

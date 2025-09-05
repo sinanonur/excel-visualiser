@@ -130,6 +130,19 @@ const ColumnManager = ({ data, columnInfo, onColumnInfoUpdate, onError }) => {
                   Null values: {info.null_count}
                 </Typography>
 
+                {info.type === 'numeric' && info.non_numeric_examples && info.non_numeric_examples.length > 0 && (
+                  <Alert severity="warning" sx={{ mt: 2 }}>
+                    <Typography variant="body2">
+                      Some values could not be converted to numbers. Examples:
+                    </Typography>
+                    <ul>
+                      {info.non_numeric_examples.map((val, index) => (
+                        <li key={index}>{val}</li>
+                      ))}
+                    </ul>
+                  </Alert>
+                )}
+
                 <FormControl fullWidth sx={{ mt: 2 }}>
                   <InputLabel>Data Type</InputLabel>
                   <Select
