@@ -10,6 +10,30 @@ import re
 import ast
 from io import BytesIO
 import base64
+import os
+import shelve
+import hashlib
+from datetime import datetime, timedelta
+
+# Cache configuration
+CACHE_DIR = "/tmp/excel_visualizer_cache"
+CACHE_FILE = "column_type_cache"
+CACHE_TTL_DAYS = 2
+
+def get_cache():
+    """Opens and returns the cache shelf."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    return shelve.open(os.path.join(CACHE_DIR, CACHE_FILE))
+
+def cleanup_cache():
+    """Removes expired entries from the cache."""
+    with get_cache() as cache:
+        expired_keys = [
+            key for key, value in cache.items()
+            if datetime.now() - value['timestamp'] > timedelta(days=CACHE_TTL_DAYS)
+        ]
+        for key in expired_keys:
+            del cache[key]
 
 def convert_to_json_serializable(obj):
     """Convert pandas/numpy data types to JSON serializable types"""
@@ -21,7 +45,7 @@ def convert_to_json_serializable(obj):
         return tuple(convert_to_json_serializable(item) for item in obj)
     elif isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
         return int(obj)
-    elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+    elif isinstance(obj, (np.float16, np.float32, np.float64)):
         return float(obj)
     elif isinstance(obj, np.bool_):
         return bool(obj)
@@ -42,6 +66,7 @@ class DataProcessor:
         self.filtered_data = None
         self.column_info = {}
         self.active_filters = {}
+        self.file_hash = None
     
     def load_excel(self, file_content):
         try:
@@ -56,30 +81,50 @@ class DataProcessor:
     def detect_column_types(self):
         self.column_info = {}
         for col in self.data.columns:
-            col_data = self.data[col].dropna()
-            if len(col_data) == 0:
-                self.column_info[col] = {'type': 'empty', 'has_lists': False}
+            col_data = self.data[col]
+            col_data_non_null = col_data.dropna()
+
+            if len(col_data_non_null) == 0:
+                self.column_info[col] = {'type': 'empty', 'has_lists': False, 'unique_values': 0, 'null_count': int(self.data[col].isna().sum())}
                 continue
+
+            has_lists = self.detect_lists_or_sets(col_data_non_null)
             
-            has_lists = self.detect_lists_or_sets(col_data)
-            
-            if col_data.dtype in ['int64', 'float64']:
+            # Default to text
+            col_type = 'text'
+
+            # Check for numeric types (native or convertible)
+            if col_data_non_null.dtype in ['int64', 'float64']:
                 col_type = 'numeric'
-            elif col_data.dtype == 'bool':
-                col_type = 'boolean'
-            elif pd.api.types.is_datetime64_any_dtype(col_data):
-                col_type = 'datetime'
-            else:
-                unique_ratio = len(col_data.unique()) / len(col_data)
-                if unique_ratio < 0.1 or len(col_data.unique()) < 20:
-                    col_type = 'categorical'
-                else:
-                    col_type = 'text'
+            elif col_data_non_null.dtype == 'object':
+                # Attempt to convert to numeric
+                numeric_series = pd.to_numeric(col_data_non_null, errors='coerce')
+                # If all non-null values were converted to numbers, it's numeric
+                if not numeric_series.isnull().any():
+                    self.data[col] = pd.to_numeric(self.data[col], errors='coerce')
+                    col_type = 'numeric'
+
+            # If not determined to be numeric, check other types
+            if col_type != 'numeric':
+                if col_data_non_null.dtype == 'bool':
+                    col_type = 'boolean'
+                elif pd.api.types.is_datetime64_any_dtype(col_data_non_null):
+                    col_type = 'datetime'
+                else: # It's a text-like column, let's see if it's categorical
+                    num_unique = len(col_data_non_null.unique())
+                    total_rows = len(self.data)
+
+                    if num_unique < 4:
+                        col_type = 'categorical'
+                    elif (num_unique / total_rows) < 0.1:
+                        col_type = 'categorical'
+                    else:
+                        col_type = 'text'
             
             self.column_info[col] = {
                 'type': col_type,
                 'has_lists': has_lists,
-                'unique_values': len(col_data.unique()),
+                'unique_values': len(col_data_non_null.unique()),
                 'null_count': self.data[col].isna().sum()
             }
     
@@ -366,7 +411,22 @@ def upload_file():
         return jsonify({'error': 'File must be an Excel file (.xlsx or .xls)'}), 400
     
     file_content = file.read()
+    file_hash = hashlib.sha256(file_content).hexdigest()
+    data_processor.file_hash = file_hash
+
     if data_processor.load_excel(file_content):
+        cleanup_cache()
+        with get_cache() as cache:
+            if file_hash in cache:
+                # Load column types from cache
+                data_processor.column_info = cache[file_hash]['column_info']
+            else:
+                # Store newly detected types in cache
+                cache[file_hash] = {
+                    'column_info': data_processor.column_info,
+                    'timestamp': datetime.now()
+                }
+
         response_data = {
             'success': True,
             'columns': list(data_processor.data.columns),
@@ -374,7 +434,6 @@ def upload_file():
             'shape': data_processor.data.shape,
             'preview': data_processor.data.head(10).to_dict('records')
         }
-        # Convert to JSON serializable format
         response_data = convert_to_json_serializable(response_data)
         return jsonify(response_data)
     else:
@@ -404,6 +463,16 @@ def update_column_type():
         return jsonify({'error': 'Column not found'}), 400
     
     data_processor.column_info[column]['type'] = new_type
+
+    # Update the cache
+    if data_processor.file_hash:
+        with get_cache() as cache:
+            if data_processor.file_hash in cache:
+                cache[data_processor.file_hash] = {
+                    'column_info': data_processor.column_info,
+                    'timestamp': datetime.now()
+                }
+
     return jsonify({'success': True})
 
 @app.route('/expand-column', methods=['POST'])
@@ -520,4 +589,5 @@ def get_filter_status():
     return jsonify(convert_to_json_serializable(response_data))
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    host = os.environ.get('FLASK_HOST', '0.0.0.0')
+    app.run(host=host, debug=True, port=5001)

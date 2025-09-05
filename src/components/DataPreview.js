@@ -16,6 +16,7 @@ import {
   Pagination
 } from '@mui/material';
 import axios from 'axios';
+import API_BASE_URL from '../config';
 
 const DataPreview = ({ data, columnInfo }) => {
   const [currentPage, setCurrentPage] = useState(1);
@@ -29,7 +30,7 @@ const DataPreview = ({ data, columnInfo }) => {
 
   const loadPageData = async (page) => {
     try {
-      const response = await axios.get(`http://localhost:5001/data-preview?page=${page}&per_page=${rowsPerPage}`);
+      const response = await axios.get(`${API_BASE_URL}/data-preview?page=${page}&per_page=${rowsPerPage}`);
       setPageData(response.data.data);
       setTotalPages(response.data.total_pages);
       setCurrentPage(page);

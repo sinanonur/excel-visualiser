@@ -19,6 +19,7 @@ import {
 import { BarChart, ScatterPlot, Timeline, FilterList } from '@mui/icons-material';
 import Plot from 'react-plotly.js';
 import axios from 'axios';
+import API_BASE_URL from '../config';
 
 const PlotGenerator = ({ data, columnInfo, onError }) => {
   const [plotType, setPlotType] = useState('');
@@ -34,7 +35,7 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
 
   const loadFilterStatus = async () => {
     try {
-      const response = await axios.get('http://localhost:5001/filter-status');
+      const response = await axios.get(`${API_BASE_URL}/filter-status`);
       setFilterStatus(response.data);
     } catch (error) {
       console.error('Error loading filter status:', error);
@@ -91,7 +92,7 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
         ...plotOptions
       };
 
-      const response = await axios.post('http://localhost:5001/plot', plotConfig);
+      const response = await axios.post(`${API_BASE_URL}/plot`, plotConfig);
       
       if (response.data.plot) {
         setPlotData(JSON.parse(response.data.plot));
