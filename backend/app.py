@@ -14,6 +14,7 @@ import os
 import shelve
 import hashlib
 from datetime import datetime, timedelta
+from .llm import GeminiLlm, TestLlm
 
 # Cache configuration
 CACHE_DIR = "/tmp/excel_visualizer_cache"
@@ -587,6 +588,51 @@ def get_filter_status():
         'total_rows': len(data_processor.original_data)
     }
     return jsonify(convert_to_json_serializable(response_data))
+
+def safe_exec(code, local_vars):
+    """Safely execute generated code."""
+    allowed_globals = {
+        'go': go,
+        'px': px,
+        'pd': pd,
+        'np': np
+    }
+    exec(code, allowed_globals, local_vars)
+
+@app.route('/generate-llm-plot', methods=['POST'])
+def generate_llm_plot():
+    if data_processor.data is None:
+        return jsonify({'error': 'No data loaded'}), 400
+
+    config = request.json
+    prompt = config.get('prompt')
+    selected_columns = config.get('columns')
+    model = config.get('model', 'gemini')
+
+    if not prompt:
+        return jsonify({'error': 'Prompt is required'}), 400
+
+    try:
+        if model == 'test':
+            llm = TestLlm()
+        else:
+            llm = GeminiLlm()
+
+        plot_code = llm.generate_plot_code(prompt, data_processor.data, selected_columns)
+
+        local_vars = {'df': data_processor.data, 'fig': None}
+        safe_exec(plot_code, local_vars)
+
+        fig = local_vars.get('fig')
+
+        if fig:
+            plot_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+            return jsonify({'plot': plot_json})
+        else:
+            return jsonify({'error': 'Could not generate plot from LLM response'}), 500
+
+    except Exception as e:
+        return jsonify({'error': f'Error generating plot: {str(e)}'}), 500
 
 if __name__ == '__main__':
     host = os.environ.get('FLASK_HOST', '0.0.0.0')

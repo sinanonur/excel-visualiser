@@ -14,9 +14,10 @@ import {
   FormControlLabel,
   Switch,
   Alert,
-  CircularProgress
+  CircularProgress,
+  TextField
 } from '@mui/material';
-import { BarChart, ScatterPlot, Timeline, FilterList } from '@mui/icons-material';
+import { BarChart, ScatterPlot, Timeline, FilterList, AutoFixHigh } from '@mui/icons-material';
 import Plot from 'react-plotly.js';
 import axios from 'axios';
 import API_BASE_URL from '../config';
@@ -28,6 +29,8 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
   const [plotData, setPlotData] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [filterStatus, setFilterStatus] = useState({ has_filters: false, filtered_rows: 0, total_rows: 0 });
+  const [llmPrompt, setLlmPrompt] = useState('');
+  const [llmModel, setLlmModel] = useState('gemini');
 
   useEffect(() => {
     loadFilterStatus();
@@ -47,7 +50,8 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
     { value: 'histogram', label: '📊 Histogram', description: 'Distribution of numeric data', minCols: 1, maxCols: 1, types: ['numeric'] },
     { value: 'box', label: '📦 Box Plot', description: 'Statistical summary of numeric data', minCols: 1, maxCols: 2, types: ['numeric', 'categorical'] },
     { value: 'bar', label: '📈 Bar Chart', description: 'Categorical data visualization', minCols: 1, maxCols: 2, types: ['categorical'] },
-    { value: 'scatter', label: '🔵 Scatter Plot', description: 'Relationship between two numeric variables', minCols: 2, maxCols: 2, types: ['numeric'] }
+    { value: 'scatter', label: '🔵 Scatter Plot', description: 'Relationship between two numeric variables', minCols: 2, maxCols: 2, types: ['numeric'] },
+    { value: 'llm', label: '🤖 Custom Graph (AI)', description: 'Generate a plot using a natural language prompt', minCols: 0, maxCols: Infinity, types: ['numeric', 'categorical', 'text', 'datetime', 'boolean'] }
   ];
 
   const getAvailableColumns = (requiredTypes) => {
@@ -76,6 +80,10 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
              (col1Type === 'categorical' && col2Type === 'numeric');
     }
 
+    if (currentType.value === 'llm') {
+      return llmPrompt.trim() !== '';
+    }
+
     return selectedColumns.every(col => 
       currentType.types.includes(columnInfo[col]?.type)
     );
@@ -86,16 +94,28 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
 
     setIsGenerating(true);
     try {
-      const plotConfig = {
-        type: plotType,
-        columns: selectedColumns,
-        ...plotOptions
-      };
+      if (plotType === 'llm') {
+        const llmConfig = {
+          prompt: llmPrompt,
+          columns: selectedColumns,
+          model: llmModel,
+        };
+        const response = await axios.post(`${API_BASE_URL}/generate-llm-plot`, llmConfig);
+        if (response.data.plot) {
+          setPlotData(JSON.parse(response.data.plot));
+        }
+      } else {
+        const plotConfig = {
+          type: plotType,
+          columns: selectedColumns,
+          ...plotOptions
+        };
 
-      const response = await axios.post(`${API_BASE_URL}/plot`, plotConfig);
-      
-      if (response.data.plot) {
-        setPlotData(JSON.parse(response.data.plot));
+        const response = await axios.post(`${API_BASE_URL}/plot`, plotConfig);
+
+        if (response.data.plot) {
+          setPlotData(JSON.parse(response.data.plot));
+        }
       }
     } catch (error) {
       onError(error.response?.data?.error || 'Failed to generate plot');
@@ -140,7 +160,8 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
       'histogram': '📊',
       'box': '📦',
       'bar': '📈',
-      'scatter': '🔵'
+      'scatter': '🔵',
+      'llm': '🤖'
     };
     return icons[type] || '📊';
   };
@@ -189,12 +210,41 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
                 <Box sx={{ mb: 2 }}>
                   <Alert severity="info" sx={{ mb: 2 }}>
                     {currentType.description}
-                    <br />
-                    Select {currentType.minCols === currentType.maxCols 
-                      ? currentType.minCols 
-                      : `${currentType.minCols}-${currentType.maxCols}`} 
-                    column{(currentType.maxCols > 1) ? 's' : ''}.
+                    {plotType !== 'llm' && (
+                      <>
+                        <br />
+                        Select {currentType.minCols === currentType.maxCols
+                          ? currentType.minCols
+                          : `${currentType.minCols}-${currentType.maxCols}`}
+                        column{(currentType.maxCols > 1) ? 's' : ''}.
+                      </>
+                    )}
                   </Alert>
+
+                  {plotType === 'llm' ? (
+                    <>
+                      <TextField
+                        fullWidth
+                        multiline
+                        rows={4}
+                        label="Describe the plot you want"
+                        value={llmPrompt}
+                        onChange={(e) => setLlmPrompt(e.target.value)}
+                        sx={{ mb: 2 }}
+                      />
+                      <FormControl fullWidth sx={{ mb: 2 }}>
+                        <InputLabel>AI Model</InputLabel>
+                        <Select
+                          value={llmModel}
+                          label="AI Model"
+                          onChange={(e) => setLlmModel(e.target.value)}
+                        >
+                          <MenuItem value="gemini">Gemini 1.5 Flash</MenuItem>
+                          <MenuItem value="test">Test Model</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </>
+                  ) : null}
 
                   <Typography variant="subtitle1" gutterBottom>
                     Available Columns ({currentType.types.join(', ')}):
@@ -249,7 +299,7 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
                     variant="contained"
                     onClick={generatePlot}
                     disabled={!canGeneratePlot() || isGenerating}
-                    startIcon={isGenerating ? <CircularProgress size={20} /> : <BarChart />}
+                    startIcon={isGenerating ? <CircularProgress size={20} /> : (plotType === 'llm' ? <AutoFixHigh /> : <BarChart />)}
                     sx={{ mt: 2 }}
                   >
                     {isGenerating ? 'Generating...' : 'Generate Plot'}
