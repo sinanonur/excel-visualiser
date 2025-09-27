@@ -14,7 +14,9 @@ import os
 import shelve
 import hashlib
 from datetime import datetime, timedelta
-from .llm import GeminiLlm, TestLlm
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__)))
+from llm import GeminiLlm, TestLlm
 
 # Cache configuration
 CACHE_DIR = "/tmp/excel_visualizer_cache"
@@ -595,9 +597,32 @@ def safe_exec(code, local_vars):
         'go': go,
         'px': px,
         'pd': pd,
-        'np': np
+        'np': np,
+        'json': json,
+        'plotly': plotly
     }
-    exec(code, allowed_globals, local_vars)
+    try:
+        print(f"🚀 Executing code in safe environment...")
+        print(f"📊 Available globals: {list(allowed_globals.keys())}")
+        print(f"📊 Local vars before: {list(local_vars.keys())}")
+        exec(code, allowed_globals, local_vars)
+        print(f"📊 Local vars after: {list(local_vars.keys())}")
+        print(f"✅ Code execution completed successfully")
+    except Exception as e:
+        print(f"❌ Error executing plot code: {e}")
+        print(f"❌ Error type: {type(e).__name__}")
+        print(f"📝 Plot code was:")
+        print("-" * 30)
+        # Print code with line numbers for easier debugging
+        for i, line in enumerate(code.split('\n'), 1):
+            print(f"{i:3}: {line}")
+        print("-" * 30)
+        
+        # Print more detailed error information
+        import traceback
+        print(f"🔍 Full traceback:")
+        traceback.print_exc()
+        raise
 
 @app.route('/generate-llm-plot', methods=['POST'])
 def generate_llm_plot():
@@ -613,26 +638,69 @@ def generate_llm_plot():
         return jsonify({'error': 'Prompt is required'}), 400
 
     try:
+        print(f"🤖 LLM Plot Request: model={model}, prompt={prompt[:100]}...")
+        
         if model == 'test':
             llm = TestLlm()
         else:
             llm = GeminiLlm()
 
         plot_code = llm.generate_plot_code(prompt, data_processor.data, selected_columns)
+        print(f"📝 Generated plot code ({len(plot_code)} characters):")
+        print("="*50)
+        print(plot_code)
+        print("="*50)
+        
+        # Check if the code looks reasonable
+        if not plot_code or len(plot_code.strip()) < 10:
+            return jsonify({
+                'error': 'LLM generated empty or too short code',
+                'generated_code': plot_code
+            }), 500
 
         local_vars = {'df': data_processor.data, 'fig': None}
+        print(f"🔧 About to execute code with df shape: {data_processor.data.shape}")
         safe_exec(plot_code, local_vars)
+        print(f"🔍 After execution, local_vars keys: {list(local_vars.keys())}")
 
         fig = local_vars.get('fig')
+        print(f"📊 Fig object type: {type(fig)}")
 
         if fig:
-            plot_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-            return jsonify({'plot': plot_json})
+            print(f"✅ Plot generated successfully")
+            # Add validation of the fig object
+            try:
+                plot_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+                print(f"📄 Plot JSON length: {len(plot_json)} characters")
+                return jsonify({'plot': plot_json})
+            except Exception as json_error:
+                print(f"❌ Error converting fig to JSON: {json_error}")
+                return jsonify({
+                    'error': f'Error converting plot to JSON: {json_error}',
+                    'generated_code': plot_code,
+                    'fig_type': str(type(fig))
+                }), 500
         else:
-            return jsonify({'error': 'Could not generate plot from LLM response'}), 500
+            print(f"❌ No fig object created by LLM code")
+            print(f"🔍 Available variables after execution: {list(local_vars.keys())}")
+            return jsonify({
+                'error': 'Could not generate plot from LLM response - no fig object created',
+                'generated_code': plot_code,
+                'available_vars': list(local_vars.keys())
+            }), 500
 
     except Exception as e:
-        return jsonify({'error': f'Error generating plot: {str(e)}'}), 500
+        error_msg = str(e)
+        print(f"❌ LLM Plot Error: {error_msg}")
+        
+        # Provide more detailed error information
+        return jsonify({
+            'error': f'Error generating plot: {error_msg}',
+            'prompt': prompt,
+            'model': model,
+            'selected_columns': selected_columns,
+            'available_columns': list(data_processor.data.columns) if data_processor.data is not None else []
+        }), 500
 
 if __name__ == '__main__':
     host = os.environ.get('FLASK_HOST', '0.0.0.0')
