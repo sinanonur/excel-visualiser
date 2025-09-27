@@ -49,7 +49,7 @@ The browser should open automatically!
 ### Common Issues
 
 **"Command not found" errors:**
-- Make sure Python 3.7+ and Node.js 14+ are installed
+- Make sure Python 3.11+ and Node.js 14+ are installed
 - Check that they're added to your system PATH
 
 **Port already in use:**
@@ -63,7 +63,7 @@ The browser should open automatically!
 ### Get Help
 
 - 📖 **Full Installation Guide**: See [INSTALLATION.md](INSTALLATION.md)
-- 📋 **System Requirements**: Python 3.7+, Node.js 14+, 4GB RAM
+- 📋 **System Requirements**: Python 3.11+, Node.js 14+, 4GB RAM
 - 🔧 **Manual Setup**: Follow platform-specific instructions in INSTALLATION.md
 
 ## 🛑 Stopping the Application

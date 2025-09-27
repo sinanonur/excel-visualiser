@@ -28,7 +28,7 @@ Excel Data Science Visualizer is a full-stack web application for exploring and 
 
 ### Backend Setup
 ```bash
-# Create and activate virtual environment
+# Create and activate virtual environment (requires Python 3.10+)
 python3 -m venv venv
 source venv/bin/activate  # Linux/macOS
 venv\Scripts\activate.bat # Windows
@@ -60,8 +60,8 @@ npm test
 ### Unified Development
 ```bash
 # Start both servers (use platform-specific script)
-./start_frontend.sh  # Linux/macOS - starts both backend and frontend
-run.bat             # Windows
+./start_frontend.sh     # Linux/macOS - starts both backend and frontend
+./run-windows.bat       # Windows - starts both servers in parallel
 ```
 
 ## Key APIs
@@ -123,7 +123,7 @@ All visualizations are generated server-side using Plotly and returned as JSON f
 
 ### Installation Features
 - Deploys all application files to Program Files
-- Creates Python virtual environment and installs dependencies
+- Creates Python 3.11 virtual environment and installs dependencies
 - Installs Node.js dependencies via npm
 - Creates desktop and Start Menu shortcuts
 - Supports silent installation: `msiexec /i package.msi /quiet`
