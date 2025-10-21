@@ -99,7 +99,7 @@ All platform installers:
 
 ### Production Build
 
-Create optimized production package:
+Create optimized production package (requires Python/Node.js on target system):
 
 ```bash
 ./build-production.sh
@@ -111,11 +111,46 @@ Create optimized production package:
 # - Run scripts for all platforms
 ```
 
-**Size comparison:**
-- Repository: ~2 MB
-- Production build: 50-100 MB
+### Standalone Build (RECOMMENDED FOR DISTRIBUTION)
+
+**Build fully self-contained packages with Python embedded - NO installation required!**
+
+```bash
+# Linux/macOS
+./build-standalone.sh
+
+# Windows
+.\build-standalone.ps1
+```
+
+**What's included in standalone builds:**
+- Python 3.11 embedded runtime (~30-50 MB)
+- All Python libraries (pandas, flask, plotly, numpy, etc.) (~250-300 MB)
+- Compiled backend executable (~150-200 MB)
+- Optimized frontend build (~50 MB)
+- Platform-specific launcher scripts
+
+**Benefits:**
+- Users need ZERO dependencies installed
+- No Python, Node.js, or pip required
+- Fully portable (works from USB drives)
+- One-click launch experience
+- Perfect for distribution to non-technical users
+
+**Size comparison (with dependencies included):**
+- Repository (source code only): ~2 MB
+- Production build (requires Python/Node): 50-100 MB
+- **Standalone build (Python + all libs bundled): 450-550 MB** ⭐
 - Docker image: 500-700 MB
-- Full dev install: 400-600 MB
+- Full dev install (local dependencies): 400-600 MB
+
+**Standalone package breakdown:**
+- Python runtime: ~30-50 MB
+- Python libraries (pandas, numpy, plotly, etc.): ~250-300 MB
+- Backend executable (PyInstaller): ~150-200 MB
+- Frontend (React build): ~50 MB
+- Application code: ~2 MB
+- **Compressed archive: ~200-300 MB**
 
 ### Development Commands
 
@@ -236,20 +271,34 @@ The repository is designed to be compact and efficient:
 
 ### Deployment Options by Size
 
-1. **Docker (Recommended for ease)**
+1. **Standalone Build (BEST FOR DISTRIBUTION)** ⭐
+   - Uncompressed: 450-550 MB
+   - Compressed: 200-300 MB
+   - Includes: Python runtime + all libraries + compiled executable
+   - Requirements: NONE - fully self-contained!
+   - Best for: End-user distribution, non-technical users, portable apps
+   - Scripts: `build-standalone.sh` / `build-standalone.ps1`
+
+2. **Docker (Recommended for servers)**
    - Size: 500-700 MB
    - Includes: Everything needed to run
-   - Best for: Production, cross-platform deployment
+   - Requirements: Docker only
+   - Best for: Production servers, cloud deployment
+   - Scripts: `docker-compose up`
 
-2. **Production Build**
+3. **Production Build**
    - Size: 50-100 MB
    - Includes: Compiled code + minimal dependencies
-   - Best for: Dedicated servers, VMs
+   - Requirements: Python 3.7+ and Node.js 14+ on target system
+   - Best for: Dedicated servers with runtime already installed
+   - Scripts: `build-production.sh`
 
-3. **Source + Dependencies**
+4. **Source + Dependencies**
    - Size: 400-600 MB
    - Includes: Full development environment
+   - Requirements: Python 3.7+, Node.js 14+
    - Best for: Development, customization
+   - Scripts: `install-*.sh` / `install-*.ps1`
 
 ### Optimization Tips
 
@@ -305,6 +354,20 @@ cd /opt/excel-visualizer
 ./run-production.sh
 ```
 
+### Standalone Distribution (End Users)
+```bash
+# Build standalone package (includes Python!)
+./build-standalone.sh      # Linux/macOS
+.\build-standalone.ps1     # Windows
+
+# Distribute the compressed archive
+# Users extract and run with ONE click:
+./launch.sh               # Linux/macOS
+launch.bat                # Windows
+
+# NO installation needed - Python and all dependencies are bundled!
+```
+
 ### Cloud Deployment
 The Docker image can be deployed to:
 - AWS ECS/EKS
@@ -317,22 +380,47 @@ The Docker image can be deployed to:
 
 ```
 excel-visualiser/
-├── backend/              # Flask application
-│   └── app.py           # Main backend server
-├── src/                 # React frontend source
-│   ├── components/      # UI components
-│   └── App.js          # Main application
-├── public/              # Static assets
-├── Dockerfile           # Multi-stage Docker build
-├── docker-compose.yml   # Container orchestration
-├── .dockerignore        # Docker build exclusions
-├── quick-install.sh     # Fast installer (Linux/macOS)
-├── quick-install.bat    # Fast installer (Windows)
-├── build-production.sh  # Production build script
-├── install-*.sh         # Platform-specific installers
-├── requirements.txt     # Python dependencies
-├── package.json         # Node.js dependencies
-└── INSTALLATION_GUIDE.md # Detailed installation docs
+├── backend/                  # Flask application
+│   └── app.py               # Main backend server
+├── src/                     # React frontend source
+│   ├── components/          # UI components
+│   └── App.js              # Main application
+├── public/                  # Static assets
+│
+├── Dockerfile               # Multi-stage Docker build
+├── docker-compose.yml       # Container orchestration
+├── .dockerignore            # Docker build exclusions
+│
+├── backend.spec             # PyInstaller configuration
+├── build-standalone.sh      # Standalone build (Linux/macOS) ⭐
+├── build-standalone.ps1     # Standalone build (Windows) ⭐
+├── build-production.sh      # Production build script
+│
+├── quick-install.sh         # Fast installer (Linux/macOS)
+├── quick-install.bat        # Fast installer (Windows)
+├── install-linux.sh         # Full Linux installer
+├── install-macos.sh         # Full macOS installer
+├── install-windows.ps1      # Full Windows installer
+│
+├── requirements.txt         # Python dependencies
+├── package.json             # Node.js dependencies
+├── INSTALLATION_GUIDE.md    # Detailed installation docs
+└── CLAUDE.md               # This file
+```
+
+**Build Outputs (not in Git):**
+```
+standalone/                  # Standalone build (450-550 MB)
+├── python/                 # Embedded Python 3.11 runtime
+├── runtime/                # Compiled backend executable
+├── app/                    # Frontend and source
+├── launch.sh / launch.bat  # One-click launcher
+└── README.txt             # User instructions
+
+production/                  # Production build (50-100 MB)
+├── backend/                # Backend application
+├── frontend/build/         # Compiled React app
+└── run-production.sh       # Launcher (requires Python/Node)
 ```
 
 See [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md) for detailed installation instructions and troubleshooting.

@@ -4,11 +4,74 @@ This guide provides multiple installation options to suit your needs and environ
 
 ## Table of Contents
 
+- [Standalone Build (BEST FOR END USERS)](#standalone-build-best-for-end-users)
 - [Quick Start (Recommended)](#quick-start-recommended)
-- [Docker Installation (Easiest)](#docker-installation-easiest)
+- [Docker Installation (Easiest for Servers)](#docker-installation-easiest-for-servers)
 - [Platform-Specific Installation](#platform-specific-installation)
 - [Production Deployment](#production-deployment)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Standalone Build (BEST FOR END USERS)
+
+**The ultimate distribution package - NO dependencies required!**
+
+This creates a fully self-contained application that includes Python, all libraries, and everything needed to run. Perfect for distributing to non-technical users.
+
+### For Developers: Building Standalone Packages
+
+**Linux/macOS:**
+```bash
+chmod +x build-standalone.sh
+./build-standalone.sh
+```
+
+**Windows:**
+```powershell
+.\build-standalone.ps1
+```
+
+**Output:**
+- Uncompressed folder: `standalone/` (450-550 MB)
+- Compressed archive: `excel-visualizer-standalone-*.tar.gz` or `.zip` (200-300 MB)
+
+### For End Users: Running Standalone Package
+
+1. **Download and extract** the standalone package
+2. **Run the launcher:**
+   - Linux/macOS: `./launch.sh`
+   - Windows: Double-click `launch.bat`
+3. **That's it!** Browser opens automatically at http://localhost:3000
+
+### What's Included (No Installation Needed!)
+
+- ✅ Python 3.11 runtime (~30-50 MB)
+- ✅ All Python libraries (pandas, flask, plotly, numpy, etc.) (~250-300 MB)
+- ✅ Compiled backend executable (~150-200 MB)
+- ✅ Optimized frontend (~50 MB)
+- ✅ One-click launcher scripts
+
+### Standalone Package Size Breakdown
+
+| Component | Size |
+|-----------|------|
+| Python runtime | 30-50 MB |
+| Python libraries | 250-300 MB |
+| Backend executable | 150-200 MB |
+| Frontend build | 50 MB |
+| **Total Uncompressed** | **450-550 MB** |
+| **Total Compressed** | **200-300 MB** |
+
+### Benefits
+
+- ❌ NO Python installation required
+- ❌ NO Node.js installation required
+- ❌ NO pip or npm commands
+- ✅ Works on systems without internet
+- ✅ Fully portable (USB drives, network shares)
+- ✅ One-click launch
+- ✅ Perfect for non-technical users
 
 ---
 
@@ -36,9 +99,9 @@ This will automatically:
 
 ---
 
-## Docker Installation (Easiest)
+## Docker Installation (Easiest for Servers)
 
-**Recommended for all platforms** - No need to install Python, Node.js, or dependencies!
+**Recommended for servers and cloud deployment** - No need to install Python, Node.js, or dependencies!
 
 ### Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/macOS)
@@ -182,14 +245,20 @@ This creates an optimized `production/` folder with:
    run-production.bat   # Windows
    ```
 
-### Production Size Comparison
+### Size Comparison by Deployment Type
 
-| Installation Type | Size (approx) |
-|------------------|---------------|
-| Repository only | 2 MB |
-| Production build | 50-100 MB |
-| Docker image | 500-700 MB |
-| Full dev install | 400-600 MB |
+| Installation Type | Uncompressed | Compressed | Requirements | Best For |
+|------------------|--------------|------------|--------------|----------|
+| **Repository (source only)** | 2 MB | 1 MB | Git | Developers |
+| **Production build** | 50-100 MB | 20-40 MB | Python + Node.js | Servers with runtimes |
+| **Standalone build** ⭐ | 450-550 MB | 200-300 MB | **NONE!** | End users, distribution |
+| **Docker image** | 500-700 MB | N/A | Docker only | Cloud, production |
+| **Full dev install** | 400-600 MB | N/A | Python + Node.js | Development |
+
+**Recommended:**
+- **For developers:** Repository + local install
+- **For end users:** Standalone build (no installation!)
+- **For servers:** Docker or production build
 
 ---
 
