@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  excel-visualizer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: excel-data-visualizer
+    ports:
+      - "3000:3000"
+      - "5001:5001"
+    environment:
+      - FLASK_ENV=production
+      - NODE_ENV=production
+    volumes:
+      # Mount a volume for persistent data storage (optional)
+      - excel-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  excel-data:
+    driver: local

@@ -24,9 +24,102 @@ Excel Data Science Visualizer is a full-stack web application for exploring and 
 3. Frontend displays data preview with pagination and type-aware filtering options
 4. Plotly generates interactive visualizations that respect active filters
 
-## Development Commands
+## Installation & Deployment
 
-### Backend Setup
+### Quick Install (Recommended)
+
+**Fastest way to get started on any platform:**
+
+```bash
+# Linux/macOS
+./quick-install.sh
+
+# Windows
+quick-install.bat
+```
+
+This automatically detects Docker and uses containerized installation if available, otherwise installs dependencies locally.
+
+### Docker Installation (Easiest - All Platforms)
+
+**Recommended for production and minimal disk usage:**
+
+```bash
+# Build and start (one command)
+docker-compose up --build
+
+# Or run in background
+docker-compose up -d
+
+# Stop
+docker-compose down
+```
+
+**Benefits:**
+- No local Python/Node.js installation required
+- Consistent environment across all platforms
+- Minimal disk space (500-700MB total)
+- Production-ready configuration
+
+**Files:**
+- `Dockerfile`: Multi-stage build for compact image
+- `docker-compose.yml`: Service orchestration
+- `.dockerignore`: Excludes unnecessary files from build
+
+### Platform-Specific Installation
+
+**Windows:**
+```powershell
+.\install-windows.ps1  # PowerShell (recommended)
+.\run.ps1 start
+
+# Or
+install-windows.bat    # Batch file
+run.bat
+```
+
+**macOS:**
+```bash
+./install-macos.sh
+./run.sh start
+# Or double-click: "Excel Visualizer.app"
+```
+
+**Linux:**
+```bash
+./install-linux.sh
+./run.sh start
+```
+
+All platform installers:
+- Detect and install required dependencies
+- Create virtual environments
+- Generate platform-specific launcher scripts
+- Support all major distributions/versions
+
+### Production Build
+
+Create optimized production package:
+
+```bash
+./build-production.sh
+
+# Output: production/ folder with:
+# - Compiled frontend (optimized)
+# - Backend application
+# - Minimal dependencies
+# - Run scripts for all platforms
+```
+
+**Size comparison:**
+- Repository: ~2 MB
+- Production build: 50-100 MB
+- Docker image: 500-700 MB
+- Full dev install: 400-600 MB
+
+### Development Commands
+
+**Backend Setup:**
 ```bash
 # Create and activate virtual environment
 python3 -m venv venv
@@ -42,7 +135,7 @@ python start_backend.py
 cd backend && python app.py
 ```
 
-### Frontend Setup
+**Frontend Setup:**
 ```bash
 # Install dependencies
 npm install
@@ -57,7 +150,7 @@ npm run build
 npm test
 ```
 
-### Unified Development
+**Unified Development:**
 ```bash
 # Start both servers (use platform-specific script)
 ./start_frontend.sh  # Linux/macOS - starts both backend and frontend
@@ -128,3 +221,118 @@ All visualizations are generated server-side using Plotly and returned as JSON f
 - Creates desktop and Start Menu shortcuts
 - Supports silent installation: `msiexec /i package.msi /quiet`
 - Proper uninstallation via Windows Add/Remove Programs
+
+## Size Optimization
+
+The repository is designed to be compact and efficient:
+
+### Repository Size
+- **Git repository**: ~2 MB (excluding dependencies)
+- **Excluded from Git** (via `.gitignore`):
+  - `node_modules/` - installed via npm
+  - `venv/` - created during setup
+  - Build artifacts and caches
+  - Platform-specific files
+
+### Deployment Options by Size
+
+1. **Docker (Recommended for ease)**
+   - Size: 500-700 MB
+   - Includes: Everything needed to run
+   - Best for: Production, cross-platform deployment
+
+2. **Production Build**
+   - Size: 50-100 MB
+   - Includes: Compiled code + minimal dependencies
+   - Best for: Dedicated servers, VMs
+
+3. **Source + Dependencies**
+   - Size: 400-600 MB
+   - Includes: Full development environment
+   - Best for: Development, customization
+
+### Optimization Tips
+
+**Reduce local disk usage:**
+```bash
+# Clear caches after installation
+npm cache clean --force
+pip cache purge
+
+# Use Docker instead of local install
+docker-compose up  # No local dependencies!
+```
+
+**Reduce Docker image size:**
+- Multi-stage build already implemented
+- Uses Alpine/slim base images
+- Only production dependencies included
+- Build cache excluded via `.dockerignore`
+
+**For distribution:**
+```bash
+# Create minimal production package
+./build-production.sh
+
+# Package for distribution
+tar -czf excel-visualizer-v1.0.tar.gz production/
+```
+
+## Deployment Scenarios
+
+### Local Development
+```bash
+./quick-install.sh  # or quick-install.bat
+./run.sh start
+```
+
+### Docker Deployment
+```bash
+docker-compose up -d
+# Application runs at http://localhost:3000
+```
+
+### Production Server
+```bash
+# Build production package locally
+./build-production.sh
+
+# Transfer to server
+scp -r production/ user@server:/opt/excel-visualizer/
+
+# On server
+cd /opt/excel-visualizer
+./run-production.sh
+```
+
+### Cloud Deployment
+The Docker image can be deployed to:
+- AWS ECS/EKS
+- Google Cloud Run
+- Azure Container Instances
+- Digital Ocean App Platform
+- Heroku (with Dockerfile)
+
+## File Structure
+
+```
+excel-visualiser/
+├── backend/              # Flask application
+│   └── app.py           # Main backend server
+├── src/                 # React frontend source
+│   ├── components/      # UI components
+│   └── App.js          # Main application
+├── public/              # Static assets
+├── Dockerfile           # Multi-stage Docker build
+├── docker-compose.yml   # Container orchestration
+├── .dockerignore        # Docker build exclusions
+├── quick-install.sh     # Fast installer (Linux/macOS)
+├── quick-install.bat    # Fast installer (Windows)
+├── build-production.sh  # Production build script
+├── install-*.sh         # Platform-specific installers
+├── requirements.txt     # Python dependencies
+├── package.json         # Node.js dependencies
+└── INSTALLATION_GUIDE.md # Detailed installation docs
+```
+
+See [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md) for detailed installation instructions and troubleshooting.
