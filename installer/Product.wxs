@@ -53,7 +53,7 @@
     <UIRef Id="WixUI_ErrorProgressText" />
     
     <!-- License Agreement -->
-    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\License.rtf" />
     
     <!-- Installation Directory Dialog -->
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
@@ -125,9 +125,11 @@
         <File Id="TestUpload" Source="test_upload.py" />
         <File Id="TestFiltering" Source="test_filtering.py" />
         <File Id="ReadMe" Source="README.md" />
-        <File Id="Installation" Source="INSTALLATION.md" />
+        <File Id="InstallationMd" Source="INSTALLATION.md" />
+        <File Id="InstallationGuide" Source="INSTALLATION_GUIDE.md" />
         <File Id="QuickStart" Source="QUICK_START.md" />
         <File Id="ClaudeMd" Source="CLAUDE.md" />
+        <File Id="AgentsMd" Source="AGENTS.md" />
       </Component>
 
       <!-- Backend Components -->
@@ -166,9 +168,30 @@
 
       <!-- Runtime Scripts -->
       <Component Id="RuntimeScripts" Guid="77777777-7777-7777-7777-777777777777">
-        <File Id="RunnerScript" Source="run.ps1" />
-        <File Id="RunnerBatch" Source="run.bat" />
+        <File Id="RunPs1" Source="run.ps1" />
+        <File Id="RunBat" Source="run.bat" />
         <File Id="StartFrontend" Source="start_frontend.sh" />
+      </Component>
+
+      <!-- Quick Install Scripts -->
+      <Component Id="QuickInstallScripts" Guid="EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE">
+        <File Id="QuickInstallSh" Source="quick-install.sh" />
+        <File Id="QuickInstallBat" Source="quick-install.bat" />
+        <File Id="BuildProduction" Source="build-production.sh" />
+        <File Id="BuildStandaloneSh" Source="build-standalone.sh" />
+        <File Id="BuildStandalonePs1" Source="build-standalone.ps1" />
+      </Component>
+
+      <!-- Docker Files -->
+      <Component Id="DockerFiles" Guid="CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC">
+        <File Id="Dockerfile" Source="Dockerfile" />
+        <File Id="DockerCompose" Source="docker-compose.yml" />
+        <File Id="DockerIgnore" Source=".dockerignore" />
+      </Component>
+
+      <!-- Build Configurations -->
+      <Component Id="BuildConfigs" Guid="DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD">
+        <File Id="BackendSpec" Source="backend.spec" />
       </Component>
 
     </ComponentGroup>
