@@ -24,6 +24,11 @@
     <!-- Features -->
     <Feature Id="ProductFeature" Title="Excel Data Science Visualizer" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="BackendComponents" />
+      <ComponentGroupRef Id="SrcComponents" />
+      <ComponentGroupRef Id="ComponentsFiles" />
+      <ComponentGroupRef Id="FiltersComponents" />
+      <ComponentGroupRef Id="PublicComponents" />
       <ComponentGroupRef Id="PythonDependencies" />
       <ComponentGroupRef Id="NodeDependencies" />
       <ComponentGroupRef Id="StartMenuShortcuts" />
@@ -142,7 +147,21 @@
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="Excel Data Science Visualizer">
+          <!-- Backend directory -->
+          <Directory Id="BACKENDDIR" Name="backend" />
+
+          <!-- Source directories -->
+          <Directory Id="SRCDIR" Name="src">
+            <Directory Id="COMPONENTSDIR" Name="components">
+              <Directory Id="FILTERSDIR" Name="filters" />
+            </Directory>
+          </Directory>
+
+          <!-- Public directory -->
+          <Directory Id="PUBLICDIR" Name="public" />
+
 <?ifdef OfflineMode?>
+          <!-- Bundle directory (offline mode only) -->
           <Directory Id="BUNDLEFOLDER" Name="bundle">
             <Directory Id="PYTHONEMBEDFOLDER" Name="python-embed" />
             <Directory Id="PYTHONWHEELSFOLDER" Name="python-wheels" />
@@ -160,9 +179,8 @@
 
   <!-- Main Application Components -->
   <Fragment>
+    <!-- Root directory files -->
     <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-      
-      <!-- Main Application Files -->
       <Component Id="MainAppFiles" Guid="11111111-1111-1111-1111-111111111111">
         <File Id="PackageJson" Source="package.json" KeyPath="yes" />
         <File Id="Requirements" Source="requirements.txt" />
@@ -180,40 +198,6 @@
         <File Id="QuickStart" Source="QUICK_START.md" />
         <File Id="ClaudeMd" Source="CLAUDE.md" />
         <File Id="AgentsMd" Source="AGENTS.md" />
-      </Component>
-
-      <!-- Backend Components -->
-      <Component Id="BackendFiles" Guid="22222222-2222-2222-2222-222222222222">
-        <File Id="BackendApp" Source="backend\app.py" />
-      </Component>
-
-      <!-- Frontend Source Components -->
-      <Component Id="FrontendSrcFiles" Guid="33333333-3333-3333-3333-333333333333">
-        <File Id="AppJs" Source="src\App.js" />
-        <File Id="IndexJs" Source="src\index.js" />
-        <File Id="IndexCss" Source="src\index.css" />
-      </Component>
-
-      <!-- Frontend Components -->
-      <Component Id="FrontendComponentFiles" Guid="44444444-4444-4444-4444-444444444444">
-        <File Id="FileUpload" Source="src\components\FileUpload.js" />
-        <File Id="DataPreview" Source="src\components\DataPreview.js" />
-        <File Id="ColumnManager" Source="src\components\ColumnManager.js" />
-        <File Id="FilterManager" Source="src\components\FilterManager.js" />
-        <File Id="PlotGenerator" Source="src\components\PlotGenerator.js" />
-      </Component>
-
-      <!-- Filter Components -->
-      <Component Id="FilterFiles" Guid="55555555-5555-5555-5555-555555555555">
-        <File Id="BooleanFilter" Source="src\components\filters\BooleanFilter.js" />
-        <File Id="CategoricalFilter" Source="src\components\filters\CategoricalFilter.js" />
-        <File Id="NumericFilter" Source="src\components\filters\NumericFilter.js" />
-        <File Id="TextFilter" Source="src\components\filters\TextFilter.js" />
-      </Component>
-
-      <!-- Public Files -->
-      <Component Id="PublicFiles" Guid="66666666-6666-6666-6666-666666666666">
-        <File Id="IndexHtml" Source="public\index.html" />
       </Component>
 
       <!-- Runtime Scripts -->
@@ -245,6 +229,53 @@
         <File Id="BackendSpec" Source="backend.spec" />
       </Component>
 
+    </ComponentGroup>
+
+    <!-- Backend directory files -->
+    <ComponentGroup Id="BackendComponents" Directory="BACKENDDIR">
+      <Component Id="BackendFiles" Guid="22222222-2222-2222-2222-222222222222">
+        <File Id="BackendApp" Source="backend\app.py" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- src directory files -->
+    <ComponentGroup Id="SrcComponents" Directory="SRCDIR">
+      <Component Id="FrontendSrcFiles" Guid="33333333-3333-3333-3333-333333333333">
+        <File Id="AppJs" Source="src\App.js" KeyPath="yes" />
+        <File Id="IndexJs" Source="src\index.js" />
+        <File Id="IndexCss" Source="src\index.css" />
+        <File Id="ConfigJs" Source="src\config.js" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- src/components directory files -->
+    <ComponentGroup Id="ComponentsFiles" Directory="COMPONENTSDIR">
+      <Component Id="FrontendComponentFiles" Guid="44444444-4444-4444-4444-444444444444">
+        <File Id="FileUpload" Source="src\components\FileUpload.js" KeyPath="yes" />
+        <File Id="DataPreview" Source="src\components\DataPreview.js" />
+        <File Id="ColumnManager" Source="src\components\ColumnManager.js" />
+        <File Id="FilterManager" Source="src\components\FilterManager.js" />
+        <File Id="PlotGenerator" Source="src\components\PlotGenerator.js" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- src/components/filters directory files -->
+    <ComponentGroup Id="FiltersComponents" Directory="FILTERSDIR">
+      <Component Id="FilterFiles" Guid="55555555-5555-5555-5555-555555555555">
+        <File Id="BooleanFilter" Source="src\components\filters\BooleanFilter.js" KeyPath="yes" />
+        <File Id="CategoricalFilter" Source="src\components\filters\CategoricalFilter.js" />
+        <File Id="NumericFilter" Source="src\components\filters\NumericFilter.js" />
+        <File Id="TextFilter" Source="src\components\filters\TextFilter.js" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- public directory files -->
+    <ComponentGroup Id="PublicComponents" Directory="PUBLICDIR">
+      <Component Id="PublicFiles" Guid="66666666-6666-6666-6666-666666666666">
+        <File Id="IndexHtml" Source="public\index.html" KeyPath="yes" />
+        <File Id="ManifestJson" Source="public\manifest.json" />
+        <File Id="FaviconIco" Source="public\favicon.ico" />
+      </Component>
     </ComponentGroup>
   </Fragment>
 
