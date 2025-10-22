@@ -13,7 +13,8 @@ if errorlevel 1 (
 
 REM Check Python version
 for /f "tokens=2" %%i in ('python --version 2^>^&1') do set pyversion=%%i
-if not "%pyversion%" == "3.11.*" (
+set pyver_major_minor=%pyversion:~0,4%
+if not "%pyver_major_minor%" == "3.11" (
     echo Warning: Python version is %pyversion%, recommended is Python 3.11
     echo Some features may not work correctly with other versions
     echo.
