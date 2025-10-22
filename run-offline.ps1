@@ -5,6 +5,13 @@ param(
     [string]$Action = "start"
 )
 
+# Get the directory where THIS script is located (works regardless of current directory)
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) {
+    # Fallback for older PowerShell versions
+    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+
 $Colors = @{
     Info = 'Blue'
     Success = 'Green'
@@ -53,10 +60,13 @@ function Kill-ProcessOnPort {
 
 function Get-PythonPath {
     # Detect Python location (installation vs source)
-    if (Test-Path "python\python.exe") {
-        return "python\python.exe"  # Installation (bundled Python)
-    } elseif (Test-Path "standalone\python\python.exe") {
-        return "standalone\python\python.exe"  # Source with standalone build
+    $pythonInBundle = Join-Path $ScriptDir "python\python.exe"
+    $pythonInStandalone = Join-Path $ScriptDir "standalone\python\python.exe"
+
+    if (Test-Path $pythonInBundle) {
+        return $pythonInBundle  # Installation (bundled Python)
+    } elseif (Test-Path $pythonInStandalone) {
+        return $pythonInStandalone  # Source with standalone build
     } elseif (Get-Command "python" -ErrorAction SilentlyContinue) {
         return "python"  # System Python
     } else {
@@ -71,15 +81,16 @@ function Start-Backend {
     $pythonExe = Get-PythonPath
     if (-not $pythonExe) {
         Write-Error "Python not found. Please install Python or use the offline installer."
-        Write-Error "Current directory: $(Get-Location)"
+        Write-Error "Script directory: $ScriptDir"
         return $false
     }
     Write-Info "Using Python: $pythonExe"
 
-    # Find backend
-    if (-not (Test-Path "backend\app.py")) {
-        Write-Error "Backend app.py not found at: backend\app.py"
-        Write-Error "Current directory: $(Get-Location)"
+    # Find backend (relative to script directory)
+    $backendPath = Join-Path $ScriptDir "backend\app.py"
+    if (-not (Test-Path $backendPath)) {
+        Write-Error "Backend app.py not found at: $backendPath"
+        Write-Error "Script directory: $ScriptDir"
         return $false
     }
 
@@ -89,25 +100,21 @@ function Start-Backend {
     }
 
     try {
-        # Resolve absolute paths
-        $backendPath = Join-Path $PWD "backend\app.py"
-        $pythonExePath = Join-Path $PWD $pythonExe
-
-        Write-Info "Starting: $pythonExe backend\app.py"
-        Write-Info "Full command: $pythonExePath $backendPath"
+        Write-Info "Starting backend from: $backendPath"
 
         # Start backend with VISIBLE console window
-        $backendProcess = Start-Process -FilePath $pythonExePath `
+        $backendProcess = Start-Process -FilePath $pythonExe `
                                        -ArgumentList "`"$backendPath`"" `
                                        -PassThru `
                                        -WindowStyle Normal `
-                                       -WorkingDirectory $PWD
+                                       -WorkingDirectory $ScriptDir
 
         Start-Sleep -Seconds 3
 
         if (-not $backendProcess.HasExited) {
             Write-Success "Backend server started on http://localhost:5001"
-            $backendProcess.Id | Out-File -FilePath "backend.pid" -Encoding ascii
+            $pidFile = Join-Path $ScriptDir "backend.pid"
+            $backendProcess.Id | Out-File -FilePath $pidFile -Encoding ascii
             return $true
         } else {
             Write-Error "Backend process exited immediately. Check the console window for errors."
@@ -121,12 +128,16 @@ function Start-Backend {
 
 function Get-FrontendPath {
     # Detect frontend location (installation vs source)
-    if (Test-Path "frontend\index.html") {
-        return "frontend"  # Installation (copied from bundle)
-    } elseif (Test-Path "build\index.html") {
-        return "build"  # Source (npm build output)
-    } elseif (Test-Path "standalone\app\frontend\index.html") {
-        return "standalone\app\frontend"  # Standalone build
+    $frontendInInstall = Join-Path $ScriptDir "frontend"
+    $frontendInBuild = Join-Path $ScriptDir "build"
+    $frontendInStandalone = Join-Path $ScriptDir "standalone\app\frontend"
+
+    if (Test-Path (Join-Path $frontendInInstall "index.html")) {
+        return $frontendInInstall  # Installation (copied from bundle)
+    } elseif (Test-Path (Join-Path $frontendInBuild "index.html")) {
+        return $frontendInBuild  # Source (npm build output)
+    } elseif (Test-Path (Join-Path $frontendInStandalone "index.html")) {
+        return $frontendInStandalone  # Standalone build
     } else {
         return $null
     }
@@ -142,11 +153,12 @@ function Start-Frontend {
         return $false
     }
 
-    # Find frontend
+    # Find frontend (returns absolute path)
     $frontendDir = Get-FrontendPath
     if (-not $frontendDir) {
-        Write-Error "Frontend build not found. Tried: frontend\, build\, standalone\app\frontend\"
-        Write-Error "Current directory: $(Get-Location)"
+        Write-Error "Frontend build not found."
+        Write-Error "Tried: frontend\, build\, standalone\app\frontend\"
+        Write-Error "Script directory: $ScriptDir"
         Write-Error "Please run 'npm run build' to build the frontend first."
         return $false
     }
@@ -158,24 +170,20 @@ function Start-Frontend {
     }
 
     try {
-        # Resolve absolute paths
-        $pythonExePath = Join-Path $PWD $pythonExe
-        $frontendFullPath = Join-Path $PWD $frontendDir
-
-        Write-Info "Starting: $pythonExe -m http.server 3000 (from $frontendDir)"
-        Write-Info "Full command: $pythonExePath -m http.server 3000"
-        Write-Info "Working directory: $frontendFullPath"
+        Write-Info "Starting Python HTTP server on port 3000"
+        Write-Info "Serving from: $frontendDir"
 
         # Use Python's built-in HTTP server to serve the frontend with VISIBLE console
-        $frontendProcess = Start-Process -FilePath $pythonExePath `
+        $frontendProcess = Start-Process -FilePath $pythonExe `
                                         -ArgumentList "-m", "http.server", "3000" `
-                                        -WorkingDirectory $frontendFullPath `
+                                        -WorkingDirectory $frontendDir `
                                         -PassThru `
                                         -WindowStyle Normal
 
         Start-Sleep -Seconds 2
         Write-Success "Frontend server started on http://localhost:3000"
-        $frontendProcess.Id | Out-File -FilePath "frontend.pid" -Encoding ascii
+        $pidFile = Join-Path $ScriptDir "frontend.pid"
+        $frontendProcess.Id | Out-File -FilePath $pidFile -Encoding ascii
 
         # Auto-open browser
         Start-Sleep -Seconds 2
@@ -191,47 +199,51 @@ function Start-Frontend {
 function Stop-Servers {
     Write-Info "Stopping servers..."
 
-    if (Test-Path "backend.pid") {
-        $backendPid = Get-Content "backend.pid"
+    $backendPidFile = Join-Path $ScriptDir "backend.pid"
+    if (Test-Path $backendPidFile) {
+        $backendPid = Get-Content $backendPidFile
         try {
             Stop-Process -Id $backendPid -Force -ErrorAction SilentlyContinue
             Write-Success "Backend server stopped"
         } catch {}
-        Remove-Item "backend.pid" -Force -ErrorAction SilentlyContinue
+        Remove-Item $backendPidFile -Force -ErrorAction SilentlyContinue
     }
 
-    if (Test-Path "frontend.pid") {
-        $frontendPid = Get-Content "frontend.pid"
+    $frontendPidFile = Join-Path $ScriptDir "frontend.pid"
+    if (Test-Path $frontendPidFile) {
+        $frontendPid = Get-Content $frontendPidFile
         try {
             Stop-Process -Id $frontendPid -Force -ErrorAction SilentlyContinue
             Write-Success "Frontend server stopped"
         } catch {}
-        Remove-Item "frontend.pid" -Force -ErrorAction SilentlyContinue
+        Remove-Item $frontendPidFile -Force -ErrorAction SilentlyContinue
     }
 }
 
 function Show-Status {
     Write-Info "Server Status:"
 
-    if (Test-Path "backend.pid") {
-        $backendPid = Get-Content "backend.pid"
+    $backendPidFile = Join-Path $ScriptDir "backend.pid"
+    if (Test-Path $backendPidFile) {
+        $backendPid = Get-Content $backendPidFile
         if (Get-Process -Id $backendPid -ErrorAction SilentlyContinue) {
             Write-Host "  Backend:  Running (PID: $backendPid) - http://localhost:5001"
         } else {
             Write-Host "  Backend:  Not running"
-            Remove-Item "backend.pid" -Force -ErrorAction SilentlyContinue
+            Remove-Item $backendPidFile -Force -ErrorAction SilentlyContinue
         }
     } else {
         Write-Host "  Backend:  Not running"
     }
 
-    if (Test-Path "frontend.pid") {
-        $frontendPid = Get-Content "frontend.pid"
+    $frontendPidFile = Join-Path $ScriptDir "frontend.pid"
+    if (Test-Path $frontendPidFile) {
+        $frontendPid = Get-Content $frontendPidFile
         if (Get-Process -Id $frontendPid -ErrorAction SilentlyContinue) {
             Write-Host "  Frontend: Running (PID: $frontendPid) - http://localhost:3000"
         } else {
             Write-Host "  Frontend: Not running"
-            Remove-Item "frontend.pid" -Force -ErrorAction SilentlyContinue
+            Remove-Item $frontendPidFile -Force -ErrorAction SilentlyContinue
         }
     } else {
         Write-Host "  Frontend: Not running"
@@ -257,7 +269,9 @@ switch ($Action.ToLower()) {
                 # Show environment info
                 $pythonExe = Get-PythonPath
                 $frontendDir = Get-FrontendPath
-                if ($pythonExe -eq "python\python.exe") {
+                $bundledPython = Join-Path $ScriptDir "python\python.exe"
+
+                if ($pythonExe -eq $bundledPython) {
                     Write-Info "Environment: Offline Installation (bundled Python, no internet needed)"
                 } elseif ($pythonExe -like "*standalone*") {
                     Write-Info "Environment: Standalone Build"
