@@ -27,21 +27,58 @@ function Test-Port {
     }
 }
 
+function Kill-ProcessOnPort {
+    param($Port, $Name)
+
+    if (Test-Port $Port) {
+        Write-Info "Port $Port is in use. Attempting to free it..."
+
+        # Find and kill process using the port
+        $netstat = netstat -ano | Select-String ":$Port\s" | Select-Object -First 1
+        if ($netstat) {
+            $processId = $netstat -replace '.*\s(\d+)\s*$', '$1'
+            try {
+                Stop-Process -Id $processId -Force -ErrorAction Stop
+                Start-Sleep -Seconds 1
+                Write-Success "Freed port $Port (killed PID $processId)"
+                return $true
+            } catch {
+                Write-Error "Could not kill process on port $Port. Please close it manually."
+                return $false
+            }
+        }
+    }
+    return $true
+}
+
 function Start-Backend {
     Write-Info "Starting backend server with bundled Python..."
 
     if (-not (Test-Path "python\python.exe")) {
-        Write-Error "Bundled Python not found. Installation may be incomplete."
+        Write-Error "Bundled Python not found at: python\python.exe"
+        Write-Error "Current directory: $(Get-Location)"
         return $false
     }
 
-    if (Test-Port 5001) {
-        Write-Error "Port 5001 is already in use."
+    if (-not (Test-Path "backend\app.py")) {
+        Write-Error "Backend app.py not found at: backend\app.py"
+        return $false
+    }
+
+    # Free port if in use
+    if (-not (Kill-ProcessOnPort 5001 "Backend")) {
         return $false
     }
 
     try {
-        $backendProcess = Start-Process -FilePath "python\python.exe" -ArgumentList "start_backend.py" -PassThru -WindowStyle Hidden
+        Write-Info "Starting: python\python.exe backend\app.py"
+
+        # Start backend with VISIBLE console window
+        $backendProcess = Start-Process -FilePath "python\python.exe" `
+                                       -ArgumentList "backend\app.py" `
+                                       -PassThru `
+                                       -WindowStyle Normal `
+                                       -WorkingDirectory $PWD
 
         Start-Sleep -Seconds 3
 
@@ -50,7 +87,7 @@ function Start-Backend {
             $backendProcess.Id | Out-File -FilePath "backend.pid" -Encoding ascii
             return $true
         } else {
-            Write-Error "Failed to start backend server"
+            Write-Error "Backend process exited immediately. Check the console window for errors."
             return $false
         }
     } catch {
@@ -63,20 +100,25 @@ function Start-Frontend {
     Write-Info "Starting frontend server with bundled Python..."
 
     if (-not (Test-Path "frontend\index.html")) {
-        Write-Error "Frontend build not found. Installation may be incomplete."
+        Write-Error "Frontend build not found at: frontend\index.html"
+        Write-Error "Current directory: $(Get-Location)"
         return $false
     }
 
-    if (Test-Port 3000) {
-        Write-Error "Port 3000 is already in use."
+    # Free port if in use
+    if (-not (Kill-ProcessOnPort 3000 "Frontend")) {
         return $false
     }
 
     try {
-        # Use Python's built-in HTTP server to serve the frontend
-        Set-Location "frontend"
-        $frontendProcess = Start-Process -FilePath "..\python\python.exe" -ArgumentList "-m", "http.server", "3000" -PassThru -WindowStyle Hidden
-        Set-Location ".."
+        Write-Info "Starting: python\python.exe -m http.server 3000 (from frontend directory)"
+
+        # Use Python's built-in HTTP server to serve the frontend with VISIBLE console
+        $frontendProcess = Start-Process -FilePath "python\python.exe" `
+                                        -ArgumentList "-m", "http.server", "3000" `
+                                        -WorkingDirectory "$PWD\frontend" `
+                                        -PassThru `
+                                        -WindowStyle Normal
 
         Start-Sleep -Seconds 2
         Write-Success "Frontend server started on http://localhost:3000"
@@ -154,11 +196,16 @@ switch ($Action.ToLower()) {
                 Write-Info "Frontend: http://localhost:3000 (opens automatically)"
                 Write-Info "Backend:  http://localhost:5001"
                 Write-Host ""
+                Write-Info "Server console windows are open and visible."
+                Write-Info "You can see logs and errors in those windows."
+                Write-Info "Do NOT close them or the application will stop."
+                Write-Host ""
                 Write-Info "This installation uses:"
                 Write-Host "  - Bundled Python 3.11 (no system Python needed)"
                 Write-Host "  - Pre-built frontend (no Node.js needed)"
                 Write-Host ""
                 Write-Info "To stop: .\run-offline.ps1 stop"
+                Write-Host ""
             }
         }
     }
