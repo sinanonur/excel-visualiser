@@ -273,8 +273,6 @@
     <ComponentGroup Id="PublicComponents" Directory="PUBLICDIR">
       <Component Id="PublicFiles" Guid="66666666-6666-6666-6666-666666666666">
         <File Id="IndexHtml" Source="public\index.html" KeyPath="yes" />
-        <File Id="ManifestJson" Source="public\manifest.json" />
-        <File Id="FaviconIco" Source="public\favicon.ico" />
       </Component>
     </ComponentGroup>
   </Fragment>
