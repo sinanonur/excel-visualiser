@@ -90,8 +90,12 @@ function Test-Prerequisites {
             Write-Error "Offline bundle not found. Please run: .\prepare-offline-msi.ps1"
             return $false
         }
-        if (-not (Test-Path "$bundleDir\node_modules")) {
-            Write-Error "Node modules bundle not found. Please run: .\prepare-offline-msi.ps1"
+        if (-not (Test-Path "$bundleDir\python-wheels")) {
+            Write-Error "Python wheels bundle not found. Please run: .\prepare-offline-msi.ps1"
+            return $false
+        }
+        if (-not (Test-Path "$bundleDir\frontend-build")) {
+            Write-Error "Frontend build not found. Please run: .\prepare-offline-msi.ps1"
             return $false
         }
         Write-Success "Offline bundle found"
