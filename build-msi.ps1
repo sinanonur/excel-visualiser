@@ -254,6 +254,7 @@ function Build-MSI {
         # Suppress ICE validation warnings
         $lightArgs += "-sice:ICE64"
         $lightArgs += "-sice:ICE03"
+        $lightArgs += "-sice:ICE80"
 
         if ($Verbose) {
             $lightArgs += "-v"

@@ -140,7 +140,7 @@
   <!-- Directory Structure -->
   <Fragment>
     <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFilesFolder">
+      <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="Excel Data Science Visualizer">
 <?ifdef OfflineMode?>
           <Directory Id="BUNDLEFOLDER" Name="bundle">
