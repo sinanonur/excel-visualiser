@@ -5,7 +5,8 @@ param(
     [string]$Version = "1.0.0",
     [string]$OutputPath = "dist",
     [switch]$Clean = $false,
-    [switch]$Verbose = $false
+    [switch]$Verbose = $false,
+    [switch]$Offline = $false
 )
 
 # Colors for output
@@ -56,13 +57,15 @@ function Test-WixToolset {
 }
 
 function Test-Prerequisites {
+    param([switch]$Offline)
+
     Write-Info "Checking prerequisites..."
-    
+
     # Check for WiX Toolset
     if (-not (Test-WixToolset)) {
         return $false
     }
-    
+
     # Check for source files
     $requiredFiles = @(
         "package.json",
@@ -72,14 +75,28 @@ function Test-Prerequisites {
         "installer\Product.wxs",
         "installer\License.rtf"
     )
-    
+
     foreach ($file in $requiredFiles) {
         if (-not (Test-Path $file)) {
             Write-Error "Required file not found: $file"
             return $false
         }
     }
-    
+
+    # Check for offline bundle if offline mode is requested
+    if ($Offline) {
+        $bundleDir = "installer\bundle"
+        if (-not (Test-Path "$bundleDir\python-embed")) {
+            Write-Error "Offline bundle not found. Please run: .\prepare-offline-msi.ps1"
+            return $false
+        }
+        if (-not (Test-Path "$bundleDir\node_modules")) {
+            Write-Error "Node modules bundle not found. Please run: .\prepare-offline-msi.ps1"
+            return $false
+        }
+        Write-Success "Offline bundle found"
+    }
+
     Write-Success "All prerequisites met"
     return $true
 }
@@ -103,20 +120,31 @@ function Clean-BuildArtifacts {
 }
 
 function Build-MSI {
-    param($Version)
-    
-    Write-Info "Building MSI package version $Version..."
-    
+    param(
+        $Version,
+        [switch]$Offline
+    )
+
+    if ($Offline) {
+        Write-Info "Building OFFLINE MSI package version $Version (includes all dependencies)..."
+    } else {
+        Write-Info "Building ONLINE MSI package version $Version (requires internet during install)..."
+    }
+
     # Create output directory
     if (-not (Test-Path $OutputPath)) {
         New-Item -ItemType Directory -Path $OutputPath | Out-Null
     }
-    
+
     # Build variables
     $productName = "ExcelDataScienceVisualizer"
-    $msiFileName = "$productName-$Version.msi"
+    if ($Offline) {
+        $msiFileName = "$productName-$Version-Offline.msi"
+    } else {
+        $msiFileName = "$productName-$Version.msi"
+    }
     $wixObjFile = "installer\Product.wixobj"
-    
+
     try {
         # Step 1: Compile WiX source to object file
         Write-Info "Compiling WiX source..."
@@ -127,7 +155,12 @@ function Build-MSI {
             "-arch", "x64",
             "-out", $wixObjFile
         )
-        
+
+        # Pass offline mode as preprocessor variable
+        if ($Offline) {
+            $candleArgs += "-dOfflineMode=1"
+        }
+
         if ($Verbose) {
             $candleArgs += "-v"
         }
@@ -148,11 +181,22 @@ function Build-MSI {
             "-cultures:en-us",
             "-out", "$OutputPath\$msiFileName"
         )
-        
+
+        # Include bundle folder for offline builds
+        if ($Offline) {
+            $lightArgs += "-b"
+            $lightArgs += "installer\bundle"
+            Write-Info "Including offline bundle in MSI..."
+        }
+
+        # Suppress ICE validation warnings
+        $lightArgs += "-sice:ICE64"
+        $lightArgs += "-sice:ICE03"
+
         if ($Verbose) {
             $lightArgs += "-v"
         }
-        
+
         & light.exe @lightArgs
         
         if ($LASTEXITCODE -ne 0) {
@@ -270,20 +314,28 @@ function Main {
     Write-Host "   Excel Data Science Visualizer MSI Builder"
     Write-Host "============================================="
     Write-Host ""
-    
+
+    if ($Offline) {
+        Write-Host "Mode: OFFLINE (no internet required for installation)"
+        Write-Host ""
+    } else {
+        Write-Host "Mode: ONLINE (requires internet during installation)"
+        Write-Host ""
+    }
+
     # Clean if requested
     if ($Clean) {
         Clean-BuildArtifacts
     }
-    
+
     # Check prerequisites
-    if (-not (Test-Prerequisites)) {
+    if (-not (Test-Prerequisites -Offline:$Offline)) {
         Write-Error "Prerequisites not met. Aborting build."
         exit 1
     }
-    
+
     # Build MSI
-    if (Build-MSI -Version $Version) {
+    if (Build-MSI -Version $Version -Offline:$Offline) {
         # Create installation guide
         Create-InstallationGuide
         

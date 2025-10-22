@@ -44,6 +44,7 @@ yarn-error.log*
 /build
 production/
 standalone/
+installer/bundle/
 
 # Build outputs
 *.tar.gz
