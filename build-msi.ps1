@@ -259,12 +259,20 @@ function Build-MSI {
             $lightArgs += "-v"
         }
 
-        & light.exe @lightArgs
-        
-        if ($LASTEXITCODE -ne 0) {
-            throw "Light linking failed with exit code $LASTEXITCODE"
+        Write-Info "Running light.exe with args: $($lightArgs -join ' ')"
+        $lightOutput = & light.exe @lightArgs 2>&1
+        $lightExitCode = $LASTEXITCODE
+
+        # Display output
+        $lightOutput | ForEach-Object { Write-Host $_ }
+
+        if ($lightExitCode -ne 0) {
+            Write-Host ""
+            Write-Host "Light.exe command that failed:" -ForegroundColor Red
+            Write-Host "light.exe $($lightArgs -join ' ')" -ForegroundColor Yellow
+            throw "Light linking failed with exit code $lightExitCode"
         }
-        
+
         Write-Success "MSI package created: $OutputPath\$msiFileName"
         
         # Get file size
