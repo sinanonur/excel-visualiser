@@ -101,20 +101,25 @@ Write-Info "Downloading all dependencies..."
 
 Write-Success "Downloaded all Python packages"
 
-# Step 5: Bundle Node.js dependencies
-Write-Info "Installing Node.js dependencies for bundling..."
+# Step 5: Build frontend for production (no Node.js needed at runtime)
+Write-Info "Building frontend for production..."
 
 if (-not (Test-Path "node_modules")) {
+    Write-Info "Installing Node.js dependencies for build..."
     npm install
 }
 
-Write-Info "Copying node_modules for bundle..."
-if (Test-Path $nodeModulesDir) {
-    Remove-Item $nodeModulesDir -Recurse -Force
-}
-Copy-Item -Path "node_modules" -Destination $nodeModulesDir -Recurse
+Write-Info "Building React frontend..."
+npm run build
 
-Write-Success "Bundled Node.js dependencies"
+Write-Info "Copying built frontend to bundle..."
+$frontendBuildDir = "$bundleDir\frontend-build"
+if (Test-Path $frontendBuildDir) {
+    Remove-Item $frontendBuildDir -Recurse -Force
+}
+Copy-Item -Path "build" -Destination $frontendBuildDir -Recurse
+
+Write-Success "Frontend built and bundled (Node.js not needed at runtime)"
 
 # Step 6: Calculate sizes
 Write-Host ""
@@ -122,8 +127,8 @@ Write-Info "Calculating bundle sizes..."
 
 $pythonEmbedSize = (Get-ChildItem -Path $pythonEmbedDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
 $pythonWheelsSize = (Get-ChildItem -Path $pythonWheelsDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
-$nodeModulesSize = (Get-ChildItem -Path $nodeModulesDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
-$totalSize = $pythonEmbedSize + $pythonWheelsSize + $nodeModulesSize
+$frontendBuildSize = (Get-ChildItem -Path $frontendBuildDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+$totalSize = $pythonEmbedSize + $pythonWheelsSize + $frontendBuildSize
 
 Write-Host ""
 Write-Host "============================================================"
@@ -131,7 +136,7 @@ Write-Host "Bundle Statistics:"
 Write-Host "============================================================"
 Write-Host "  Python embedded:     $([math]::Round($pythonEmbedSize, 1)) MB"
 Write-Host "  Python wheels:       $([math]::Round($pythonWheelsSize, 1)) MB"
-Write-Host "  Node.js modules:     $([math]::Round($nodeModulesSize, 1)) MB"
+Write-Host "  Frontend build:      $([math]::Round($frontendBuildSize, 1)) MB"
 Write-Host "  ----------------------------------------------------------"
 Write-Host "  TOTAL BUNDLE SIZE:   $([math]::Round($totalSize, 1)) MB"
 Write-Host "============================================================"
@@ -139,9 +144,15 @@ Write-Host ""
 
 Write-Success "Offline package preparation complete!"
 Write-Host ""
+Write-Info "Bundle includes:"
+Write-Host "  - Python 3.11 embedded runtime (no system Python needed)"
+Write-Host "  - All Python packages pre-downloaded"
+Write-Host "  - Pre-built React frontend (no Node.js needed)"
+Write-Host ""
 Write-Info "Next steps:"
 Write-Host "  1. Run: .\build-msi.ps1 -Offline"
-Write-Host "  2. The MSI will include all dependencies (no internet required)"
+Write-Host "  2. The MSI will be fully self-contained"
+Write-Host "  3. NO Python or Node.js required on target system!"
 Write-Host ""
-Write-Warning "Note: The MSI file will be approximately $([math]::Round($totalSize + 50, 0)) MB"
+Write-Warning "Note: The MSI file will be approximately $([math]::Round($totalSize + 10, 0)) MB"
 Write-Host ""

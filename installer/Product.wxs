@@ -101,9 +101,9 @@
                   Impersonate="no"
                   Return="check" />
 
-    <CustomAction Id="CopyNodeModules"
+    <CustomAction Id="CopyFrontendBuild"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="cmd.exe /c &quot;xcopy /E /I /Y bundle\node_modules node_modules&quot;"
+                  ExeCommand="cmd.exe /c &quot;xcopy /E /I /Y bundle\frontend-build frontend&quot;"
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
@@ -129,7 +129,7 @@
       <Custom Action="InstallPythonDepsOffline" After="CopyPythonEmbed">
         <![CDATA[NOT REMOVE]]>
       </Custom>
-      <Custom Action="CopyNodeModules" After="InstallPythonDepsOffline">
+      <Custom Action="CopyFrontendBuild" After="InstallPythonDepsOffline">
         <![CDATA[NOT REMOVE]]>
       </Custom>
 <?endif?>
@@ -146,7 +146,7 @@
           <Directory Id="BUNDLEFOLDER" Name="bundle">
             <Directory Id="PYTHONEMBEDFOLDER" Name="python-embed" />
             <Directory Id="PYTHONWHEELSFOLDER" Name="python-wheels" />
-            <Directory Id="NODEMODULESBUNDLE" Name="node_modules" />
+            <Directory Id="FRONTENDBUILDDIR" Name="frontend-build" />
           </Directory>
 <?endif?>
         </Directory>
@@ -220,6 +220,7 @@
       <Component Id="RuntimeScripts" Guid="77777777-7777-7777-7777-777777777777">
         <File Id="RunPs1" Source="run.ps1" />
         <File Id="RunBat" Source="run.bat" />
+        <File Id="RunOfflinePs1" Source="run-offline.ps1" />
         <File Id="StartFrontend" Source="start_frontend.sh" />
       </Component>
 
@@ -269,12 +270,22 @@
   <Fragment>
     <ComponentGroup Id="StartMenuShortcuts" Directory="ApplicationProgramsFolder">
       <Component Id="ApplicationShortcut" Guid="AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA">
+<?ifndef OfflineMode?>
         <Shortcut Id="ApplicationStartMenuShortcut"
                   Name="Excel Data Science Visualizer"
                   Description="Launch Excel Data Science Visualizer"
                   Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
                   Arguments="-ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]run.ps1&quot; start"
                   WorkingDirectory="INSTALLFOLDER" />
+<?endif?>
+<?ifdef OfflineMode?>
+        <Shortcut Id="ApplicationStartMenuShortcut"
+                  Name="Excel Data Science Visualizer"
+                  Description="Launch Excel Data Science Visualizer (Offline - No Internet Required)"
+                  Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
+                  Arguments="-ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]run-offline.ps1&quot; start"
+                  WorkingDirectory="INSTALLFOLDER" />
+<?endif?>
         
         <Shortcut Id="UninstallProduct"
                   Name="Uninstall Excel Data Science Visualizer"
@@ -297,12 +308,22 @@
   <Fragment>
     <ComponentGroup Id="DesktopShortcuts" Directory="DesktopFolder">
       <Component Id="DesktopShortcut" Guid="BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB">
+<?ifndef OfflineMode?>
         <Shortcut Id="ApplicationDesktopShortcut"
                   Name="Excel Data Science Visualizer"
                   Description="Launch Excel Data Science Visualizer"
                   Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
                   Arguments="-ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]run.ps1&quot; start"
                   WorkingDirectory="INSTALLFOLDER" />
+<?endif?>
+<?ifdef OfflineMode?>
+        <Shortcut Id="ApplicationDesktopShortcut"
+                  Name="Excel Data Science Visualizer"
+                  Description="Launch Excel Data Science Visualizer (Offline - No Internet Required)"
+                  Target="[System64Folder]WindowsPowerShell\v1.0\powershell.exe"
+                  Arguments="-ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]run-offline.ps1&quot; start"
+                  WorkingDirectory="INSTALLFOLDER" />
+<?endif?>
 
         <RegistryValue Root="HKCU"
                        Key="Software\ExcelDataScienceVisualizer"
