@@ -107,14 +107,15 @@ function Test-Prerequisites {
 
 function Clean-BuildArtifacts {
     Write-Info "Cleaning build artifacts..."
-    
+
     $cleanPaths = @(
         "installer\*.wixobj",
         "installer\*.wixpdb",
         "installer\*.msi",
+        "installer\Bundle.wxs",
         $OutputPath
     )
-    
+
     foreach ($path in $cleanPaths) {
         if (Test-Path $path) {
             Remove-Item $path -Recurse -Force
@@ -148,8 +149,38 @@ function Build-MSI {
         $msiFileName = "$productName-$Version.msi"
     }
     $wixObjFile = "installer\Product.wixobj"
+    $bundleWxsFile = "installer\Bundle.wxs"
+    $bundleObjFile = "installer\Bundle.wixobj"
 
     try {
+        # Step 0: Harvest bundle files if in offline mode
+        if ($Offline) {
+            Write-Info "Harvesting bundle files with heat.exe..."
+            $heatArgs = @(
+                "dir", "installer\bundle",
+                "-cg", "OfflineBundleFiles",
+                "-dr", "BUNDLEFOLDER",
+                "-gg",
+                "-sfrag",
+                "-srd",
+                "-sreg",
+                "-var", "var.BundleSourceDir",
+                "-out", $bundleWxsFile
+            )
+
+            if ($Verbose) {
+                $heatArgs += "-v"
+            }
+
+            & heat.exe @heatArgs
+
+            if ($LASTEXITCODE -ne 0) {
+                throw "Heat harvesting failed with exit code $LASTEXITCODE"
+            }
+
+            Write-Success "Bundle files harvested successfully"
+        }
+
         # Step 1: Compile WiX source to object file
         Write-Info "Compiling WiX source..."
         $candleArgs = @(
@@ -163,35 +194,62 @@ function Build-MSI {
         # Pass offline mode as preprocessor variable
         if ($Offline) {
             $candleArgs += "-dOfflineMode=1"
+            $candleArgs += "-dBundleSourceDir=installer\bundle"
         }
 
         if ($Verbose) {
             $candleArgs += "-v"
         }
-        
+
         & candle.exe @candleArgs
-        
+
         if ($LASTEXITCODE -ne 0) {
             throw "Candle compilation failed with exit code $LASTEXITCODE"
         }
-        
+
         Write-Success "WiX source compiled successfully"
-        
+
+        # Step 1b: Compile bundle WXS if in offline mode
+        if ($Offline) {
+            Write-Info "Compiling bundle WiX source..."
+            $candleBundleArgs = @(
+                $bundleWxsFile,
+                "-dVersion=$Version",
+                "-dProductVersion=$Version",
+                "-dBundleSourceDir=installer\bundle",
+                "-arch", "x64",
+                "-out", $bundleObjFile
+            )
+
+            if ($Verbose) {
+                $candleBundleArgs += "-v"
+            }
+
+            & candle.exe @candleBundleArgs
+
+            if ($LASTEXITCODE -ne 0) {
+                throw "Bundle candle compilation failed with exit code $LASTEXITCODE"
+            }
+
+            Write-Success "Bundle WiX source compiled successfully"
+        }
+
         # Step 2: Link object file to MSI
         Write-Info "Linking MSI package..."
         $lightArgs = @(
-            $wixObjFile,
+            $wixObjFile
+        )
+
+        # Add bundle object file if offline
+        if ($Offline) {
+            $lightArgs += $bundleObjFile
+        }
+
+        $lightArgs += @(
             "-ext", "WixUIExtension",
             "-cultures:en-us",
             "-out", "$OutputPath\$msiFileName"
         )
-
-        # Include bundle folder for offline builds
-        if ($Offline) {
-            $lightArgs += "-b"
-            $lightArgs += "installer\bundle"
-            Write-Info "Including offline bundle in MSI..."
-        }
 
         # Suppress ICE validation warnings
         $lightArgs += "-sice:ICE64"
@@ -223,6 +281,12 @@ function Build-MSI {
         # Clean up intermediate files
         if (Test-Path $wixObjFile) {
             Remove-Item $wixObjFile -Force
+        }
+        if (Test-Path $bundleWxsFile) {
+            Remove-Item $bundleWxsFile -Force
+        }
+        if (Test-Path $bundleObjFile) {
+            Remove-Item $bundleObjFile -Force
         }
         if (Test-Path "installer\Product.wixpdb") {
             Remove-Item "installer\Product.wixpdb" -Force
