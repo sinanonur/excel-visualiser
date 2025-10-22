@@ -12,6 +12,12 @@ if (-not $ScriptDir) {
     $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
 
+# Use temp directory for PID files (C:\Program Files is read-only for normal users)
+$PidDir = Join-Path $env:TEMP "ExcelVisualizer"
+if (-not (Test-Path $PidDir)) {
+    New-Item -ItemType Directory -Path $PidDir -Force | Out-Null
+}
+
 $Colors = @{
     Info = 'Blue'
     Success = 'Green'
@@ -113,7 +119,7 @@ function Start-Backend {
 
         if (-not $backendProcess.HasExited) {
             Write-Success "Backend server started on http://localhost:5001"
-            $pidFile = Join-Path $ScriptDir "backend.pid"
+            $pidFile = Join-Path $PidDir "backend.pid"
             $backendProcess.Id | Out-File -FilePath $pidFile -Encoding ascii
             return $true
         } else {
@@ -182,7 +188,7 @@ function Start-Frontend {
 
         Start-Sleep -Seconds 2
         Write-Success "Frontend server started on http://localhost:3000"
-        $pidFile = Join-Path $ScriptDir "frontend.pid"
+        $pidFile = Join-Path $PidDir "frontend.pid"
         $frontendProcess.Id | Out-File -FilePath $pidFile -Encoding ascii
 
         # Auto-open browser
@@ -199,7 +205,7 @@ function Start-Frontend {
 function Stop-Servers {
     Write-Info "Stopping servers..."
 
-    $backendPidFile = Join-Path $ScriptDir "backend.pid"
+    $backendPidFile = Join-Path $PidDir "backend.pid"
     if (Test-Path $backendPidFile) {
         $backendPid = Get-Content $backendPidFile
         try {
@@ -209,7 +215,7 @@ function Stop-Servers {
         Remove-Item $backendPidFile -Force -ErrorAction SilentlyContinue
     }
 
-    $frontendPidFile = Join-Path $ScriptDir "frontend.pid"
+    $frontendPidFile = Join-Path $PidDir "frontend.pid"
     if (Test-Path $frontendPidFile) {
         $frontendPid = Get-Content $frontendPidFile
         try {
@@ -223,7 +229,7 @@ function Stop-Servers {
 function Show-Status {
     Write-Info "Server Status:"
 
-    $backendPidFile = Join-Path $ScriptDir "backend.pid"
+    $backendPidFile = Join-Path $PidDir "backend.pid"
     if (Test-Path $backendPidFile) {
         $backendPid = Get-Content $backendPidFile
         if (Get-Process -Id $backendPid -ErrorAction SilentlyContinue) {
@@ -236,7 +242,7 @@ function Show-Status {
         Write-Host "  Backend:  Not running"
     }
 
-    $frontendPidFile = Join-Path $ScriptDir "frontend.pid"
+    $frontendPidFile = Join-Path $PidDir "frontend.pid"
     if (Test-Path $frontendPidFile) {
         $frontendPid = Get-Content $frontendPidFile
         if (Get-Process -Id $frontendPid -ErrorAction SilentlyContinue) {
