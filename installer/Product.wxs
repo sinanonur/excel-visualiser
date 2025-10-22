@@ -25,6 +25,8 @@
     <Feature Id="ProductFeature" Title="Excel Data Science Visualizer" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
       <ComponentGroupRef Id="BackendComponents" />
+      <ComponentGroupRef Id="LLMComponents" />
+      <ComponentGroupRef Id="TestsComponents" />
       <ComponentGroupRef Id="SrcComponents" />
       <ComponentGroupRef Id="ComponentsFiles" />
       <ComponentGroupRef Id="FiltersComponents" />
@@ -148,7 +150,12 @@
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="Excel Data Science Visualizer">
           <!-- Backend directory -->
-          <Directory Id="BACKENDDIR" Name="backend" />
+          <Directory Id="BACKENDDIR" Name="backend">
+            <Directory Id="LLMDIR" Name="llm" />
+          </Directory>
+
+          <!-- Tests directory -->
+          <Directory Id="TESTSDIR" Name="tests" />
 
           <!-- Source directories -->
           <Directory Id="SRCDIR" Name="src">
@@ -190,14 +197,15 @@
         <File Id="InstallWindowsBat" Source="install-windows.bat" />
         <File Id="InstallWindowsPs1" Source="install-windows.ps1" />
         <File Id="TestData" Source="test_data.xlsx" />
-        <File Id="TestUpload" Source="test_upload.py" />
-        <File Id="TestFiltering" Source="test_filtering.py" />
+        <File Id="TestLLMBasic" Source="test_llm_basic.py" />
         <File Id="ReadMe" Source="README.md" />
         <File Id="InstallationMd" Source="INSTALLATION.md" />
         <File Id="InstallationGuide" Source="INSTALLATION_GUIDE.md" />
         <File Id="QuickStart" Source="QUICK_START.md" />
         <File Id="ClaudeMd" Source="CLAUDE.md" />
         <File Id="AgentsMd" Source="AGENTS.md" />
+        <File Id="LLMReadMe" Source="LLM_README.md" />
+        <File Id="RequirementsSpec" Source="requirements-spec.md" />
       </Component>
 
       <!-- Runtime Scripts -->
@@ -206,6 +214,9 @@
         <File Id="RunBat" Source="run.bat" />
         <File Id="RunOfflinePs1" Source="run-offline.ps1" />
         <File Id="StartFrontend" Source="start_frontend.sh" />
+        <File Id="RunWindowsBat" Source="run-windows.bat" />
+        <File Id="SetupVenvBat" Source="setup-venv.bat" />
+        <File Id="SetupVenvSh" Source="setup-venv.sh" />
       </Component>
 
       <!-- Quick Install Scripts -->
@@ -235,6 +246,26 @@
     <ComponentGroup Id="BackendComponents" Directory="BACKENDDIR">
       <Component Id="BackendFiles" Guid="22222222-2222-2222-2222-222222222222">
         <File Id="BackendApp" Source="backend\app.py" KeyPath="yes" />
+        <File Id="BackendTestLLMPlot" Source="backend\test_llm_plot.py" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Backend LLM directory files -->
+    <ComponentGroup Id="LLMComponents" Directory="LLMDIR">
+      <Component Id="LLMFiles" Guid="FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF">
+        <File Id="LLMInit" Source="backend\llm\__init__.py" KeyPath="yes" />
+        <File Id="LLMBase" Source="backend\llm\base.py" />
+        <File Id="LLMGemini" Source="backend\llm\gemini.py" />
+        <File Id="LLMTest" Source="backend\llm\test.py" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Tests directory files -->
+    <ComponentGroup Id="TestsComponents" Directory="TESTSDIR">
+      <Component Id="TestFiles" Guid="11111111-2222-3333-4444-555555555555">
+        <File Id="TestFiltering" Source="tests\test_filtering.py" KeyPath="yes" />
+        <File Id="TestUpload" Source="tests\test_upload.py" />
+        <File Id="TestLLM" Source="tests\test_llm.py" />
       </Component>
     </ComponentGroup>
 

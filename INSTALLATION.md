@@ -16,14 +16,14 @@ This guide provides step-by-step installation instructions for Linux, macOS, and
 
 ### Minimum Requirements
 - **Operating System**: Linux (Ubuntu 18.04+, CentOS 7+, etc.), macOS 10.14+, or Windows 10+
-- **Python**: 3.7 or higher
+- **Python**: 3.11 or higher (required for scikit-learn 1.7+ and numpy 2.x)
 - **Node.js**: 14.0 or higher
 - **RAM**: 4GB minimum, 8GB recommended
 - **Storage**: 1GB free space
 - **Internet**: Required for initial setup
 
 ### Recommended Requirements
-- **Python**: 3.9+
+- **Python**: 3.11 (stable) or 3.12 (latest features)
 - **Node.js**: 18.0+ (LTS)
 - **RAM**: 8GB or more
 - **Storage**: 2GB free space
@@ -55,21 +55,28 @@ If the automatic installer fails, follow these steps:
 1. **Install System Dependencies**
    ```bash
    # Ubuntu/Debian
-   sudo apt update && sudo apt install -y python3 python3-pip python3-venv nodejs npm build-essential
+   sudo apt update && sudo apt install -y python3.11 python3.11-pip python3.11-venv nodejs npm build-essential
+   # OR for Python 3.12:
+   sudo apt install -y python3.12 python3.12-pip python3.12-venv nodejs npm build-essential
    
    # CentOS/RHEL/Fedora
-   sudo yum install -y python3 python3-pip nodejs npm gcc gcc-c++
-   # OR for newer versions:
-   sudo dnf install -y python3 python3-pip nodejs npm gcc gcc-c++
+   sudo dnf install -y python3.11 python3.11-pip nodejs npm gcc gcc-c++
+   # OR for Python 3.12:
+   sudo dnf install -y python3.12 python3.12-pip nodejs npm gcc gcc-c++
    
    # Arch Linux
-   sudo pacman -S python python-pip nodejs npm base-devel
+   sudo pacman -S python311 python-pip nodejs npm base-devel
+   # OR for Python 3.12:
+   sudo pacman -S python312 python-pip nodejs npm base-devel
    ```
 
 2. **Setup Application**
    ```bash
-   # Create Python virtual environment
-   python3 -m venv venv
+   # Create Python virtual environment with specific version
+   python3.11 -m venv venv
+   # OR
+   python3.12 -m venv venv
+   
    source venv/bin/activate
    
    # Install Python dependencies
@@ -143,14 +150,19 @@ The installer will:
 
 2. **Install Dependencies**
    ```bash
-   # Install Python and Node.js
-   brew install python node
+   # Install Python 3.11 (recommended) and Node.js
+   brew install python@3.11 node
+   # OR for Python 3.12:
+   brew install python@3.12 node
    ```
 
 3. **Setup Application**
    ```bash
-   # Create Python virtual environment
-   python3 -m venv venv
+   # Create Python virtual environment with specific version
+   /opt/homebrew/bin/python3.11 -m venv venv
+   # OR for Python 3.12:
+   /opt/homebrew/bin/python3.12 -m venv venv
+   
    source venv/bin/activate
    
    # Install dependencies
@@ -215,9 +227,10 @@ open "Excel Visualizer.app"
 
 ### Option 3: Manual Installation
 
-1. **Install Python**
-   - Download from [python.org](https://www.python.org/downloads/)
+1. **Install Python 3.11 or 3.12**
+   - Download Python 3.11 or 3.12 from [python.org](https://www.python.org/downloads/)
    - ⚠️ **Important**: Check "Add Python to PATH" during installation
+   - ⚠️ **Note**: Python 3.10 and below are NOT compatible with this project
 
 2. **Install Node.js**
    - Download from [nodejs.org](https://nodejs.org/)
@@ -226,6 +239,9 @@ open "Excel Visualizer.app"
 3. **Setup Application**
    ```cmd
    # Open Command Prompt in the project directory
+   
+   # Verify Python version (must be 3.11+)
+   python --version
    
    # Create virtual environment
    python -m venv venv

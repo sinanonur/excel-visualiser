@@ -156,7 +156,7 @@ Create optimized production package (requires Python/Node.js on target system):
 
 **Backend Setup:**
 ```bash
-# Create and activate virtual environment
+# Create and activate virtual environment (requires Python 3.10+)
 python3 -m venv venv
 source venv/bin/activate  # Linux/macOS
 venv\Scripts\activate.bat # Windows
@@ -188,8 +188,8 @@ npm test
 **Unified Development:**
 ```bash
 # Start both servers (use platform-specific script)
-./start_frontend.sh  # Linux/macOS - starts both backend and frontend
-run.bat             # Windows
+./start_frontend.sh     # Linux/macOS - starts both backend and frontend
+./run-windows.bat       # Windows - starts both servers in parallel
 ```
 
 ## Key APIs
@@ -305,6 +305,7 @@ The MSI installer provides a professional Windows installation experience with t
 **Deployment:**
 - Installs to `C:\Program Files\Excel Data Science Visualizer\`
 - Creates proper directory structure (backend/, src/, public/, frontend/)
+- Creates Python 3.11 virtual environment (online) or copies embedded Python (offline)
 - Handles spaces in paths correctly
 - Creates Start Menu and Desktop shortcuts
 - Supports silent installation: `msiexec /i package.msi /quiet`
