@@ -51,17 +51,35 @@ function Kill-ProcessOnPort {
     return $true
 }
 
-function Start-Backend {
-    Write-Info "Starting backend server with bundled Python..."
+function Get-PythonPath {
+    # Detect Python location (installation vs source)
+    if (Test-Path "python\python.exe") {
+        return "python\python.exe"  # Installation (bundled Python)
+    } elseif (Test-Path "standalone\python\python.exe") {
+        return "standalone\python\python.exe"  # Source with standalone build
+    } elseif (Get-Command "python" -ErrorAction SilentlyContinue) {
+        return "python"  # System Python
+    } else {
+        return $null
+    }
+}
 
-    if (-not (Test-Path "python\python.exe")) {
-        Write-Error "Bundled Python not found at: python\python.exe"
+function Start-Backend {
+    Write-Info "Starting backend server..."
+
+    # Find Python
+    $pythonExe = Get-PythonPath
+    if (-not $pythonExe) {
+        Write-Error "Python not found. Please install Python or use the offline installer."
         Write-Error "Current directory: $(Get-Location)"
         return $false
     }
+    Write-Info "Using Python: $pythonExe"
 
+    # Find backend
     if (-not (Test-Path "backend\app.py")) {
         Write-Error "Backend app.py not found at: backend\app.py"
+        Write-Error "Current directory: $(Get-Location)"
         return $false
     }
 
@@ -71,10 +89,10 @@ function Start-Backend {
     }
 
     try {
-        Write-Info "Starting: python\python.exe backend\app.py"
+        Write-Info "Starting: $pythonExe backend\app.py"
 
         # Start backend with VISIBLE console window
-        $backendProcess = Start-Process -FilePath "python\python.exe" `
+        $backendProcess = Start-Process -FilePath $pythonExe `
                                        -ArgumentList "backend\app.py" `
                                        -PassThru `
                                        -WindowStyle Normal `
@@ -96,14 +114,38 @@ function Start-Backend {
     }
 }
 
-function Start-Frontend {
-    Write-Info "Starting frontend server with bundled Python..."
+function Get-FrontendPath {
+    # Detect frontend location (installation vs source)
+    if (Test-Path "frontend\index.html") {
+        return "frontend"  # Installation (copied from bundle)
+    } elseif (Test-Path "build\index.html") {
+        return "build"  # Source (npm build output)
+    } elseif (Test-Path "standalone\app\frontend\index.html") {
+        return "standalone\app\frontend"  # Standalone build
+    } else {
+        return $null
+    }
+}
 
-    if (-not (Test-Path "frontend\index.html")) {
-        Write-Error "Frontend build not found at: frontend\index.html"
-        Write-Error "Current directory: $(Get-Location)"
+function Start-Frontend {
+    Write-Info "Starting frontend server..."
+
+    # Find Python
+    $pythonExe = Get-PythonPath
+    if (-not $pythonExe) {
+        Write-Error "Python not found. Please install Python or use the offline installer."
         return $false
     }
+
+    # Find frontend
+    $frontendDir = Get-FrontendPath
+    if (-not $frontendDir) {
+        Write-Error "Frontend build not found. Tried: frontend\, build\, standalone\app\frontend\"
+        Write-Error "Current directory: $(Get-Location)"
+        Write-Error "Please run 'npm run build' to build the frontend first."
+        return $false
+    }
+    Write-Info "Using frontend: $frontendDir"
 
     # Free port if in use
     if (-not (Kill-ProcessOnPort 3000 "Frontend")) {
@@ -111,12 +153,12 @@ function Start-Frontend {
     }
 
     try {
-        Write-Info "Starting: python\python.exe -m http.server 3000 (from frontend directory)"
+        Write-Info "Starting: $pythonExe -m http.server 3000 (from $frontendDir)"
 
         # Use Python's built-in HTTP server to serve the frontend with VISIBLE console
-        $frontendProcess = Start-Process -FilePath "python\python.exe" `
+        $frontendProcess = Start-Process -FilePath $pythonExe `
                                         -ArgumentList "-m", "http.server", "3000" `
-                                        -WorkingDirectory "$PWD\frontend" `
+                                        -WorkingDirectory "$PWD\$frontendDir" `
                                         -PassThru `
                                         -WindowStyle Normal
 
@@ -200,9 +242,18 @@ switch ($Action.ToLower()) {
                 Write-Info "You can see logs and errors in those windows."
                 Write-Info "Do NOT close them or the application will stop."
                 Write-Host ""
-                Write-Info "This installation uses:"
-                Write-Host "  - Bundled Python 3.11 (no system Python needed)"
-                Write-Host "  - Pre-built frontend (no Node.js needed)"
+
+                # Show environment info
+                $pythonExe = Get-PythonPath
+                $frontendDir = Get-FrontendPath
+                if ($pythonExe -eq "python\python.exe") {
+                    Write-Info "Environment: Offline Installation (bundled Python, no internet needed)"
+                } elseif ($pythonExe -like "*standalone*") {
+                    Write-Info "Environment: Standalone Build"
+                } else {
+                    Write-Info "Environment: Source/Development (using system Python)"
+                }
+
                 Write-Host ""
                 Write-Info "To stop: .\run-offline.ps1 stop"
                 Write-Host ""
