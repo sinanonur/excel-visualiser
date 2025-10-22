@@ -107,7 +107,7 @@ timeout /t 3 /nobreak >nul
 
 REM Start frontend using Python's built-in server
 cd app\frontend
-start "Frontend Server" /min ..\..python\python.exe -m http.server 3000
+start "Frontend Server" /min ..\..\python\python.exe -m http.server 3000
 
 REM Wait a moment
 timeout /t 2 /nobreak >nul
