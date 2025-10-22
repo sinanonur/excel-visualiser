@@ -89,11 +89,16 @@ function Start-Backend {
     }
 
     try {
+        # Resolve absolute paths
+        $backendPath = Join-Path $PWD "backend\app.py"
+        $pythonExePath = Join-Path $PWD $pythonExe
+
         Write-Info "Starting: $pythonExe backend\app.py"
+        Write-Info "Full command: $pythonExePath $backendPath"
 
         # Start backend with VISIBLE console window
-        $backendProcess = Start-Process -FilePath $pythonExe `
-                                       -ArgumentList "backend\app.py" `
+        $backendProcess = Start-Process -FilePath $pythonExePath `
+                                       -ArgumentList "`"$backendPath`"" `
                                        -PassThru `
                                        -WindowStyle Normal `
                                        -WorkingDirectory $PWD
@@ -153,12 +158,18 @@ function Start-Frontend {
     }
 
     try {
+        # Resolve absolute paths
+        $pythonExePath = Join-Path $PWD $pythonExe
+        $frontendFullPath = Join-Path $PWD $frontendDir
+
         Write-Info "Starting: $pythonExe -m http.server 3000 (from $frontendDir)"
+        Write-Info "Full command: $pythonExePath -m http.server 3000"
+        Write-Info "Working directory: $frontendFullPath"
 
         # Use Python's built-in HTTP server to serve the frontend with VISIBLE console
-        $frontendProcess = Start-Process -FilePath $pythonExe `
+        $frontendProcess = Start-Process -FilePath $pythonExePath `
                                         -ArgumentList "-m", "http.server", "3000" `
-                                        -WorkingDirectory "$PWD\$frontendDir" `
+                                        -WorkingDirectory $frontendFullPath `
                                         -PassThru `
                                         -WindowStyle Normal
 
