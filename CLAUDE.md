@@ -228,34 +228,142 @@ All visualizations are generated server-side using Plotly and returned as JSON f
 
 ## Windows MSI Package
 
-### Building MSI Installer
-```powershell
-# Prerequisites: Install WiX Toolset 3.11+ from wixtoolset.org
-# Or via Chocolatey: choco install wixtoolset
+### Overview
 
-# Build MSI package
+The MSI installer provides a professional Windows installation experience with two modes:
+
+1. **Online MSI** (requires internet during installation)
+2. **Offline MSI** ⭐ (fully self-contained, NO internet required)
+
+### Building MSI Installer
+
+**Prerequisites:**
+- **WiX Toolset 3.11+** - Install from [wixtoolset.org](https://wixtoolset.org/releases/) or via Chocolatey: `choco install wixtoolset`
+
+**Online MSI (Traditional):**
+```powershell
+# Build MSI package (downloads dependencies during installation)
 .\build-msi.ps1
 
-# Build with custom version
+# Custom version
 .\build-msi.ps1 -Version "1.0.1"
 
 # Clean build with verbose output
 .\build-msi.ps1 -Clean -Verbose -OutputPath "releases"
 ```
 
+**Offline MSI (RECOMMENDED):** ⭐
+```powershell
+# Step 1: Prepare offline bundle (downloads all dependencies locally)
+.\prepare-offline-msi.ps1
+
+# This downloads and bundles:
+# - Python 3.11 embedded runtime (~40 MB)
+# - All Python packages as wheels (~100 MB)
+# - Pre-built React frontend (~25 MB)
+# Total bundle: ~165 MB
+
+# Step 2: Build offline MSI (includes all dependencies)
+.\build-msi.ps1 -Offline
+
+# Output: dist/ExcelDataScienceVisualizer-1.0.0-Offline.msi (~176 MB)
+```
+
+### Offline MSI Benefits
+
+**Why use Offline MSI:**
+- ✅ **NO internet required** during installation
+- ✅ **NO Python or Node.js** required on target system
+- ✅ **Instant installation** - no downloading during install
+- ✅ **Works in air-gapped environments** (offline/secure networks)
+- ✅ **Consistent installations** - same dependencies every time
+- ✅ **Perfect for distribution** to non-technical users
+
+**What's bundled:**
+- Python 3.11 embedded runtime (no system Python needed)
+- All Python libraries pre-downloaded (pandas, flask, plotly, etc.)
+- Pre-built React frontend (no Node.js needed)
+- Launcher scripts with visible console windows
+
 ### MSI Structure
-- `installer/Product.wxs`: WiX configuration defining installation behavior
+
+**Files:**
+- `installer/Product.wxs`: WiX configuration with online/offline conditional compilation
 - `installer/License.rtf`: License agreement for installer
-- `build-msi.ps1`: PowerShell script to build MSI package
-- Output: `dist/ExcelDataScienceVisualizer-{version}.msi`
+- `installer/README.md`: Detailed MSI documentation
+- `build-msi.ps1`: PowerShell script to build MSI (supports `-Offline` flag)
+- `prepare-offline-msi.ps1`: Downloads and prepares offline bundle
+- `diagnose-offline.ps1`: Diagnostic script for troubleshooting installations
+
+**Outputs:**
+- **Online**: `dist/ExcelDataScienceVisualizer-{version}.msi` (~385 KB)
+- **Offline**: `dist/ExcelDataScienceVisualizer-{version}-Offline.msi` (~176 MB)
+- `dist/INSTALLATION_GUIDE.md`: User installation instructions
 
 ### Installation Features
-- Deploys all application files to Program Files
-- Creates Python virtual environment and installs dependencies
-- Installs Node.js dependencies via npm
-- Creates desktop and Start Menu shortcuts
+
+**Deployment:**
+- Installs to `C:\Program Files\Excel Data Science Visualizer\`
+- Creates proper directory structure (backend/, src/, public/, frontend/)
+- Handles spaces in paths correctly
+- Creates Start Menu and Desktop shortcuts
 - Supports silent installation: `msiexec /i package.msi /quiet`
 - Proper uninstallation via Windows Add/Remove Programs
+
+**Post-Installation (Online MSI):**
+- Creates Python virtual environment
+- Downloads and installs Python dependencies
+- Downloads and installs Node.js dependencies
+- Requires internet connection
+
+**Post-Installation (Offline MSI):**
+- Copies bundled Python runtime to `python/`
+- Installs pre-downloaded Python packages from `bundle/python-wheels/`
+- Copies pre-built frontend from `bundle/frontend-build/` to `frontend/`
+- NO internet connection required
+
+**Launcher Script (`run-offline.ps1`):**
+- Auto-detects Python location (bundled vs system)
+- Auto-detects frontend location (installation vs source)
+- Stores PID files in user temp directory (no admin privileges needed)
+- Shows visible console windows for debugging
+- Auto-kills old processes on ports 5001/3000
+- Works from any directory (uses `$PSScriptRoot`)
+- Opens browser automatically to http://localhost:3000
+
+### Testing & Troubleshooting
+
+**Test the installation:**
+```powershell
+# Run diagnostic script
+cd "C:\Program Files\Excel Data Science Visualizer"
+.\diagnose-offline.ps1
+
+# Or use batch launchers (keep console open for errors)
+.\launch-backend.bat
+.\launch-frontend.bat
+
+# Or use PowerShell launcher
+.\run-offline.ps1 start
+.\run-offline.ps1 stop
+.\run-offline.ps1 status
+```
+
+**Common Issues:**
+1. **Permission errors**: PID files now stored in `%TEMP%\ExcelVisualizer\`
+2. **Path with spaces**: All paths use proper quoting
+3. **Missing files**: Diagnostic script shows what's missing
+4. **Frontend directory empty**: Batch launcher auto-copies from bundle
+
+### Distribution
+
+**For end users:**
+1. Build offline MSI: `.\build-msi.ps1 -Offline`
+2. Distribute: `dist/ExcelDataScienceVisualizer-1.0.0-Offline.msi`
+3. Include: `dist/INSTALLATION_GUIDE.md`
+4. Users double-click MSI to install
+5. Launch from Start Menu or Desktop shortcut
+6. NO technical knowledge required
 
 ## Size Optimization
 
@@ -271,29 +379,39 @@ The repository is designed to be compact and efficient:
 
 ### Deployment Options by Size
 
-1. **Standalone Build (BEST FOR DISTRIBUTION)** ⭐
+1. **Offline MSI (BEST FOR WINDOWS USERS)** ⭐
+   - Size: ~176 MB
+   - Includes: Python runtime + all libraries + pre-built frontend
+   - Requirements: NONE - fully self-contained!
+   - Best for: Windows end-users, enterprise deployment, air-gapped environments
+   - Scripts: `prepare-offline-msi.ps1` + `build-msi.ps1 -Offline`
+   - Platform: Windows only (MSI installer)
+   - Features: One-click install, no technical knowledge needed
+
+2. **Standalone Build (BEST FOR CROSS-PLATFORM)** ⭐
    - Uncompressed: 450-550 MB
    - Compressed: 200-300 MB
    - Includes: Python runtime + all libraries + compiled executable
    - Requirements: NONE - fully self-contained!
    - Best for: End-user distribution, non-technical users, portable apps
    - Scripts: `build-standalone.sh` / `build-standalone.ps1`
+   - Platform: Linux, macOS, Windows
 
-2. **Docker (Recommended for servers)**
+3. **Docker (Recommended for servers)**
    - Size: 500-700 MB
    - Includes: Everything needed to run
    - Requirements: Docker only
    - Best for: Production servers, cloud deployment
    - Scripts: `docker-compose up`
 
-3. **Production Build**
+4. **Production Build**
    - Size: 50-100 MB
    - Includes: Compiled code + minimal dependencies
    - Requirements: Python 3.7+ and Node.js 14+ on target system
    - Best for: Dedicated servers with runtime already installed
    - Scripts: `build-production.sh`
 
-4. **Source + Dependencies**
+5. **Source + Dependencies**
    - Size: 400-600 MB
    - Includes: Full development environment
    - Requirements: Python 3.7+, Node.js 14+
@@ -384,17 +502,31 @@ excel-visualiser/
 │   └── app.py               # Main backend server
 ├── src/                     # React frontend source
 │   ├── components/          # UI components
+│   │   └── filters/        # Filter components
 │   └── App.js              # Main application
 ├── public/                  # Static assets
+│   └── index.html          # HTML template
+│
+├── installer/               # MSI installer configuration ⭐
+│   ├── Product.wxs         # WiX installer definition
+│   ├── License.rtf         # License agreement
+│   └── README.md           # MSI documentation
 │
 ├── Dockerfile               # Multi-stage Docker build
 ├── docker-compose.yml       # Container orchestration
 ├── .dockerignore            # Docker build exclusions
 │
 ├── backend.spec             # PyInstaller configuration
-├── build-standalone.sh      # Standalone build (Linux/macOS) ⭐
-├── build-standalone.ps1     # Standalone build (Windows) ⭐
+├── build-standalone.sh      # Standalone build (Linux/macOS)
+├── build-standalone.ps1     # Standalone build (Windows)
 ├── build-production.sh      # Production build script
+│
+├── build-msi.ps1            # MSI builder (online/offline) ⭐
+├── prepare-offline-msi.ps1  # Offline bundle preparation ⭐
+├── diagnose-offline.ps1     # Installation diagnostics ⭐
+├── launch-backend.bat       # Backend launcher (visible console) ⭐
+├── launch-frontend.bat      # Frontend launcher (visible console) ⭐
+├── run-offline.ps1          # Offline runtime launcher ⭐
 │
 ├── quick-install.sh         # Fast installer (Linux/macOS)
 ├── quick-install.bat        # Fast installer (Windows)
@@ -405,7 +537,8 @@ excel-visualiser/
 ├── requirements.txt         # Python dependencies
 ├── package.json             # Node.js dependencies
 ├── INSTALLATION_GUIDE.md    # Detailed installation docs
-└── CLAUDE.md               # This file
+├── CLAUDE.md               # This file (project instructions)
+└── AGENTS.md               # Agent usage guide
 ```
 
 **Build Outputs (not in Git):**
