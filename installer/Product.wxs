@@ -45,7 +45,7 @@
 
     <!-- Launch Conditions -->
     <Condition Message="This application requires Windows 10 or later.">
-      <![CDATA[Installed OR (VersionNT >= 1000)]]>
+      <![CDATA[Installed OR (VersionNT >= 603)]]>
     </Condition>
 
     <!-- UI Configuration -->
