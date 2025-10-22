@@ -14,9 +14,10 @@ import {
   FormControlLabel,
   Switch,
   Alert,
-  CircularProgress
+  CircularProgress,
+  TextField
 } from '@mui/material';
-import { BarChart, ScatterPlot, Timeline, FilterList } from '@mui/icons-material';
+import { BarChart, ScatterPlot, Timeline, FilterList, AutoFixHigh } from '@mui/icons-material';
 import Plot from 'react-plotly.js';
 import axios from 'axios';
 import API_BASE_URL from '../config';
@@ -28,6 +29,10 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
   const [plotData, setPlotData] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [filterStatus, setFilterStatus] = useState({ has_filters: false, filtered_rows: 0, total_rows: 0 });
+  const [llmPrompt, setLlmPrompt] = useState('');
+  const [llmModel, setLlmModel] = useState('gemini');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [debugInfo, setDebugInfo] = useState('');
 
   useEffect(() => {
     loadFilterStatus();
@@ -47,7 +52,8 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
     { value: 'histogram', label: '📊 Histogram', description: 'Distribution of numeric data', minCols: 1, maxCols: 1, types: ['numeric'] },
     { value: 'box', label: '📦 Box Plot', description: 'Statistical summary of numeric data', minCols: 1, maxCols: 2, types: ['numeric', 'categorical'] },
     { value: 'bar', label: '📈 Bar Chart', description: 'Categorical data visualization', minCols: 1, maxCols: 2, types: ['categorical'] },
-    { value: 'scatter', label: '🔵 Scatter Plot', description: 'Relationship between two numeric variables', minCols: 2, maxCols: 2, types: ['numeric'] }
+    { value: 'scatter', label: '🔵 Scatter Plot', description: 'Relationship between two numeric variables', minCols: 2, maxCols: 2, types: ['numeric'] },
+    { value: 'llm', label: '🤖 Custom Graph (AI)', description: 'Generate a plot using a natural language prompt', minCols: 0, maxCols: Infinity, types: ['numeric', 'categorical', 'text', 'datetime', 'boolean'] }
   ];
 
   const getAvailableColumns = (requiredTypes) => {
@@ -76,6 +82,10 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
              (col1Type === 'categorical' && col2Type === 'numeric');
     }
 
+    if (currentType.value === 'llm') {
+      return llmPrompt.trim() !== '';
+    }
+
     return selectedColumns.every(col => 
       currentType.types.includes(columnInfo[col]?.type)
     );
@@ -85,20 +95,112 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
     if (!canGeneratePlot()) return;
 
     setIsGenerating(true);
+    // Don't clear errors immediately - let them persist
+    // setErrorMessage('');
+    // setDebugInfo('');
+    
     try {
-      const plotConfig = {
-        type: plotType,
-        columns: selectedColumns,
-        ...plotOptions
-      };
-
-      const response = await axios.post(`${API_BASE_URL}/plot`, plotConfig);
+      console.log('🚀 Starting plot generation...', { plotType, selectedColumns, llmPrompt });
       
-      if (response.data.plot) {
-        setPlotData(JSON.parse(response.data.plot));
+      if (plotType === 'llm') {
+        const llmConfig = {
+          prompt: llmPrompt,
+          columns: selectedColumns,
+          model: llmModel,
+        };
+        
+        console.log('📤 Sending LLM request:', llmConfig);
+        setDebugInfo(`Sending request to ${API_BASE_URL}/generate-llm-plot with model: ${llmModel}`);
+        
+        const response = await axios.post(`${API_BASE_URL}/generate-llm-plot`, llmConfig);
+        
+        console.log('📥 LLM Response:', response.status, response.data);
+        
+        if (response.data.plot) {
+          try {
+            const plotJson = JSON.parse(response.data.plot);
+            console.log('✅ Plot parsed successfully:', plotJson);
+            setPlotData(plotJson);
+            setDebugInfo('Plot generated successfully!');
+            setErrorMessage(''); // Clear error only on success
+          } catch (parseError) {
+            console.error('❌ Plot JSON parse error:', parseError);
+            setErrorMessage(`Plot Data Parse Error: ${parseError.message}`);
+            setDebugInfo(`Raw plot data: ${response.data.plot.substring(0, 500)}...`);
+          }
+        } else if (response.data.error) {
+          const error = response.data.error;
+          console.error('❌ Backend error:', error);
+          setErrorMessage(`Backend Error: ${error}`);
+          setDebugInfo(`Full backend response: ${JSON.stringify(response.data, null, 2)}`);
+        } else {
+          console.error('❌ No plot data in response:', response.data);
+          setErrorMessage('No plot data received from backend');
+          setDebugInfo(`Response keys: ${Object.keys(response.data).join(', ')} | Full response: ${JSON.stringify(response.data, null, 2)}`);
+        }
+      } else {
+        const plotConfig = {
+          type: plotType,
+          columns: selectedColumns,
+          ...plotOptions
+        };
+
+        console.log('📤 Sending plot request:', plotConfig);
+        setDebugInfo(`Sending request to ${API_BASE_URL}/plot with type: ${plotType}`);
+
+        const response = await axios.post(`${API_BASE_URL}/plot`, plotConfig);
+        
+        console.log('📥 Plot Response:', response.status, response.data);
+
+        if (response.data.plot) {
+          try {
+            const plotJson = JSON.parse(response.data.plot);
+            console.log('✅ Plot parsed successfully:', plotJson);
+            setPlotData(plotJson);
+            setDebugInfo('Plot generated successfully!');
+            setErrorMessage(''); // Clear error only on success
+          } catch (parseError) {
+            console.error('❌ Plot JSON parse error:', parseError);
+            setErrorMessage(`Plot Data Parse Error: ${parseError.message}`);
+            setDebugInfo(`Raw plot data: ${response.data.plot.substring(0, 500)}...`);
+          }
+        } else if (response.data.error) {
+          const error = response.data.error;
+          console.error('❌ Backend error:', error);
+          setErrorMessage(`Backend Error: ${error}`);
+          setDebugInfo(`Full backend response: ${JSON.stringify(response.data, null, 2)}`);
+        } else {
+          console.error('❌ No plot data in response:', response.data);
+          setErrorMessage('No plot data received from backend');
+          setDebugInfo(`Response keys: ${Object.keys(response.data).join(', ')} | Full response: ${JSON.stringify(response.data, null, 2)}`);
+        }
       }
     } catch (error) {
-      onError(error.response?.data?.error || 'Failed to generate plot');
+      console.error('❌ Plot generation failed:', error);
+      
+      if (error.response) {
+        // Backend returned an error response
+        const backendError = error.response.data?.error || error.response.statusText;
+        const fullError = `Backend Error (${error.response.status}): ${backendError}`;
+        console.error('📋 Full backend error details:', error.response.data);
+        setErrorMessage(fullError);
+        setDebugInfo(`Status: ${error.response.status} | Full response: ${JSON.stringify(error.response.data, null, 2)}`);
+      } else if (error.request) {
+        // Network error
+        const networkError = 'Network Error: Cannot connect to backend';
+        console.error('🌐 Network error details:', error.request);
+        setErrorMessage(networkError);
+        setDebugInfo(`Check if backend is running on ${API_BASE_URL} | Network details: ${error.message}`);
+      } else {
+        // Other error (JSON parse, etc.)
+        const otherError = `Error: ${error.message}`;
+        console.error('⚠️  Other error details:', error);
+        setErrorMessage(otherError);
+        setDebugInfo(`Error type: ${error.name} | Stack: ${error.stack?.substring(0, 300)}...`);
+      }
+      
+      // Also call the parent error handler
+      onError(error.response?.data?.error || error.message || 'Failed to generate plot');
     } finally {
       setIsGenerating(false);
     }
@@ -109,6 +211,8 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
     setSelectedColumns([]);
     setPlotOptions({});
     setPlotData(null);
+    setErrorMessage('');
+    setDebugInfo('');
   };
 
   const handleColumnSelection = (column) => {
@@ -120,6 +224,10 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
     } else if (selectedColumns.length < currentType.maxCols) {
       setSelectedColumns([...selectedColumns, column]);
     }
+    
+    // Clear errors when user changes selection
+    setErrorMessage('');
+    setDebugInfo('');
   };
 
   const getColumnChipColor = (column) => {
@@ -140,7 +248,8 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
       'histogram': '📊',
       'box': '📦',
       'bar': '📈',
-      'scatter': '🔵'
+      'scatter': '🔵',
+      'llm': '🤖'
     };
     return icons[type] || '📊';
   };
@@ -189,12 +298,41 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
                 <Box sx={{ mb: 2 }}>
                   <Alert severity="info" sx={{ mb: 2 }}>
                     {currentType.description}
-                    <br />
-                    Select {currentType.minCols === currentType.maxCols 
-                      ? currentType.minCols 
-                      : `${currentType.minCols}-${currentType.maxCols}`} 
-                    column{(currentType.maxCols > 1) ? 's' : ''}.
+                    {plotType !== 'llm' && (
+                      <>
+                        <br />
+                        Select {currentType.minCols === currentType.maxCols
+                          ? currentType.minCols
+                          : `${currentType.minCols}-${currentType.maxCols}`}
+                        column{(currentType.maxCols > 1) ? 's' : ''}.
+                      </>
+                    )}
                   </Alert>
+
+                  {plotType === 'llm' ? (
+                    <>
+                      <TextField
+                        fullWidth
+                        multiline
+                        rows={4}
+                        label="Describe the plot you want"
+                        value={llmPrompt}
+                        onChange={(e) => setLlmPrompt(e.target.value)}
+                        sx={{ mb: 2 }}
+                      />
+                      <FormControl fullWidth sx={{ mb: 2 }}>
+                        <InputLabel>AI Model</InputLabel>
+                        <Select
+                          value={llmModel}
+                          label="AI Model"
+                          onChange={(e) => setLlmModel(e.target.value)}
+                        >
+                          <MenuItem value="gemini">Gemini 2.5 Flash</MenuItem>
+                          <MenuItem value="test">Test Model</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </>
+                  ) : null}
 
                   <Typography variant="subtitle1" gutterBottom>
                     Available Columns ({currentType.types.join(', ')}):
@@ -249,11 +387,33 @@ const PlotGenerator = ({ data, columnInfo, onError }) => {
                     variant="contained"
                     onClick={generatePlot}
                     disabled={!canGeneratePlot() || isGenerating}
-                    startIcon={isGenerating ? <CircularProgress size={20} /> : <BarChart />}
+                    startIcon={isGenerating ? <CircularProgress size={20} /> : (plotType === 'llm' ? <AutoFixHigh /> : <BarChart />)}
                     sx={{ mt: 2 }}
                   >
                     {isGenerating ? 'Generating...' : 'Generate Plot'}
                   </Button>
+
+                  {/* Error Display */}
+                  {errorMessage && (
+                    <Alert severity="error" sx={{ mt: 2 }}>
+                      <Typography variant="subtitle2" gutterBottom>
+                        Error:
+                      </Typography>
+                      {errorMessage}
+                    </Alert>
+                  )}
+
+                  {/* Debug Info Display */}
+                  {debugInfo && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                      <Typography variant="subtitle2" gutterBottom>
+                        Debug Info:
+                      </Typography>
+                      <Box sx={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-word' }}>
+                        {debugInfo}
+                      </Box>
+                    </Alert>
+                  )}
                 </Box>
               )}
             </CardContent>

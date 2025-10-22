@@ -66,18 +66,22 @@ Choose your operating system:
 <summary>Click to expand manual installation steps</summary>
 
 ### Prerequisites
-- Python 3.7+
+- Python 3.11+ (recommended) or 3.12
 - Node.js 14+
 - 4GB RAM (8GB recommended)
 
 ### Backend Setup
 ```bash
-# Create virtual environment
-python3 -m venv venv
+# Create virtual environment with Python 3.11+
+python3.11 -m venv venv
+# OR
+python3.12 -m venv venv
+
 source venv/bin/activate  # Linux/macOS
 venv\Scripts\activate.bat # Windows
 
 # Install dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
 
 # Start backend
