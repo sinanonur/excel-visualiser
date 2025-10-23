@@ -1,0 +1,90 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+AGENTS.md
+INSTALLATION.md
+QUICK_START.md
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Dependencies (will be installed during build)
+node_modules
+venv
+env
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Build artifacts
+build
+dist
+*.egg-info
+.eggs
+
+# Test files
+test_*.py
+test_*.xlsx
+*.test.js
+*.spec.js
+
+# Runtime files
+*.pid
+*.log
+logs
+*.tmp
+*.temp
+
+# MSI and installer files
+installer
+*.msi
+*.exe
+*.bat
+*.ps1
+*.sh
+build-msi.ps1
+install-*.sh
+install-*.bat
+install-*.ps1
+
+# OS files
+Thumbs.db
+ehthumbs.db
+.Spotlight-V100
+.Trashes
+
+# Package files
+*.zip
+*.tar.gz
+*.tgz
+
+# Cache
+.npm
+.cache
+.pytest_cache
+.coverage
+htmlcov
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Docker files (avoid recursion)
+Dockerfile*
+docker-compose*.yml
+.dockerignore

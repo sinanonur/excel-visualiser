@@ -41,6 +41,18 @@ yarn-error.log*
 
 # Production
 /dist
+/build
+production/
+standalone/
+installer/bundle/
+
+# Build outputs
+*.tar.gz
+excel-visualizer-standalone-*
+excel-visualizer-production-*
+
+# PyInstaller
+*.spec.bak
 
 # Runtime data
 pids
