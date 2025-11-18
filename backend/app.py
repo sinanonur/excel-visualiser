@@ -16,11 +16,14 @@ import shelve
 import hashlib
 from datetime import datetime, timedelta
 import sys
+import tempfile
+import logging
+from logging.handlers import RotatingFileHandler
 sys.path.append(os.path.join(os.path.dirname(__file__)))
 from llm import GeminiLlm, TestLlm
 
-# Cache configuration
-CACHE_DIR = "/tmp/excel_visualizer_cache"
+# Cache configuration - Cross-platform compatible
+CACHE_DIR = os.path.join(tempfile.gettempdir(), "excel_visualizer_cache")
 CACHE_FILE = "column_type_cache"
 CACHE_TTL_DAYS = 2
 
@@ -63,6 +66,58 @@ class ExportPlotSchema(Schema):
     format = fields.Str(required=True, validate=validate.OneOf(['png', 'svg', 'pdf']))
     width = fields.Int(missing=1200, validate=validate.Range(min=100, max=4000))
     height = fields.Int(missing=800, validate=validate.Range(min=100, max=4000))
+
+# Logging configuration
+def setup_logging():
+    """Configure application logging with rotation"""
+    # Create logs directory if it doesn't exist
+    log_dir = os.path.join(tempfile.gettempdir(), "excel_visualizer_logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "app.log")
+
+    # Configure root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Remove existing handlers to avoid duplicates
+    logger.handlers.clear()
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    console_handler.setFormatter(console_format)
+
+    # File handler with rotation (10MB max, keep 5 backups)
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10*1024*1024,  # 10MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.INFO)
+    file_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_format)
+
+    # Add handlers
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+
+    return logger
+
+# Initialize logging
+logger = setup_logging()
+logger.info("="*60)
+logger.info("Excel Data Science Visualizer - Backend Starting")
+logger.info(f"Cache directory: {CACHE_DIR}")
+logger.info(f"Python version: {sys.version}")
+logger.info("="*60)
 
 def get_cache():
     """Opens and returns the cache shelf."""
@@ -116,10 +171,11 @@ class DataProcessor:
         try:
             self.data = pd.read_excel(BytesIO(file_content))
             self.original_data = self.data.copy()
+            logger.info(f"Successfully loaded Excel file with shape {self.data.shape}")
             self.detect_column_types()
             return True
         except Exception as e:
-            print(f"Error loading Excel: {e}")
+            logger.error(f"Error loading Excel file: {e}", exc_info=True)
             return False
     
     def detect_column_types(self):
@@ -219,9 +275,10 @@ class DataProcessor:
     def apply_filters(self, filters):
         """Apply filters to the data and store filtered result"""
         try:
+            logger.info(f"Applying {len(filters)} filter(s)")
             self.active_filters = filters
             filtered_data = self.original_data.copy()
-            
+
             for column, filter_config in filters.items():
                 if column not in filtered_data.columns:
                     continue
@@ -277,10 +334,11 @@ class DataProcessor:
             self.filtered_data = filtered_data
             # Update current working data for plots
             self.data = filtered_data.copy()
+            logger.info(f"Filters applied successfully. Result: {len(self.data)} rows (from {len(self.original_data)})")
             return True
-            
+
         except Exception as e:
-            print(f"Error applying filters: {e}")
+            logger.error(f"Error applying filters: {e}", exc_info=True)
             return False
     
     def clear_filters(self):
@@ -434,10 +492,11 @@ class DataProcessor:
             else:
                 return None
             
+            logger.info(f"Successfully generated {plot_type} plot")
             return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-            
+
         except Exception as e:
-            print(f"Error generating plot: {e}")
+            logger.error(f"Error generating plot: {e}", exc_info=True)
             return None
 
 data_processor = DataProcessor()
@@ -445,13 +504,18 @@ data_processor = DataProcessor()
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
+        logger.warning("Upload attempt with no file")
         return jsonify({'error': 'No file provided'}), 400
 
     file = request.files['file']
     if file.filename == '':
+        logger.warning("Upload attempt with empty filename")
         return jsonify({'error': 'No file selected'}), 400
 
+    logger.info(f"File upload request: {file.filename}")
+
     if not file.filename.endswith(('.xlsx', '.xls')):
+        logger.warning(f"Invalid file format: {file.filename}")
         return jsonify({'error': 'File must be an Excel file (.xlsx or .xls)'}), 400
 
     # Read file content and check size
@@ -459,6 +523,7 @@ def upload_file():
     file_size = len(file_content)
 
     if file_size > MAX_FILE_SIZE_BYTES:
+        logger.warning(f"File too large: {file_size / (1024 * 1024):.2f}MB (max: {MAX_FILE_SIZE_MB}MB)")
         return jsonify({
             'error': f'File too large. Maximum size is {MAX_FILE_SIZE_MB}MB',
             'file_size_mb': round(file_size / (1024 * 1024), 2),
@@ -466,7 +531,10 @@ def upload_file():
         }), 413
 
     if file_size == 0:
+        logger.warning("Empty file uploaded")
         return jsonify({'error': 'File is empty'}), 400
+
+    logger.info(f"File size: {file_size / 1024:.2f}KB")
 
     file_hash = hashlib.sha256(file_content).hexdigest()
     data_processor.file_hash = file_hash
@@ -492,8 +560,10 @@ def upload_file():
             'preview': data_processor.data.head(10).to_dict('records')
         }
         response_data = convert_to_json_serializable(response_data)
+        logger.info(f"File upload successful: {file.filename}, shape: {data_processor.data.shape}")
         return jsonify(response_data)
     else:
+        logger.error(f"Failed to process Excel file: {file.filename}")
         return jsonify({'error': 'Failed to process Excel file. Please ensure the file is a valid Excel file.'}), 500
 
 @app.route('/column-info', methods=['GET'])
@@ -683,26 +753,18 @@ def safe_exec(code, local_vars):
         'plotly': plotly
     }
     try:
-        print(f"🚀 Executing code in safe environment...")
-        print(f"📊 Available globals: {list(allowed_globals.keys())}")
-        print(f"📊 Local vars before: {list(local_vars.keys())}")
+        logger.debug("Executing LLM-generated code in safe environment")
+        logger.debug(f"Available globals: {list(allowed_globals.keys())}")
+        logger.debug(f"Local vars before: {list(local_vars.keys())}")
         exec(code, allowed_globals, local_vars)
-        print(f"📊 Local vars after: {list(local_vars.keys())}")
-        print(f"✅ Code execution completed successfully")
+        logger.debug(f"Local vars after: {list(local_vars.keys())}")
+        logger.info("LLM code execution completed successfully")
     except Exception as e:
-        print(f"❌ Error executing plot code: {e}")
-        print(f"❌ Error type: {type(e).__name__}")
-        print(f"📝 Plot code was:")
-        print("-" * 30)
-        # Print code with line numbers for easier debugging
+        logger.error(f"Error executing LLM plot code: {type(e).__name__} - {e}")
+        logger.error("Generated code:")
         for i, line in enumerate(code.split('\n'), 1):
-            print(f"{i:3}: {line}")
-        print("-" * 30)
-        
-        # Print more detailed error information
-        import traceback
-        print(f"🔍 Full traceback:")
-        traceback.print_exc()
+            logger.error(f"  {i:3}: {line}")
+        logger.error("Full traceback:", exc_info=True)
         raise
 
 @app.route('/generate-llm-plot', methods=['POST'])
@@ -722,51 +784,53 @@ def generate_llm_plot():
     model = validated_config['model']
 
     try:
-        print(f"🤖 LLM Plot Request: model={model}, prompt={prompt[:100]}...")
-        
+        logger.info(f"LLM Plot Request - Model: {model}, Prompt length: {len(prompt)} chars")
+        logger.debug(f"Prompt preview: {prompt[:100]}...")
+
         if model == 'test':
             llm = TestLlm()
         else:
             llm = GeminiLlm()
 
         plot_code = llm.generate_plot_code(prompt, data_processor.data, selected_columns)
-        print(f"📝 Generated plot code ({len(plot_code)} characters):")
-        print("="*50)
-        print(plot_code)
-        print("="*50)
-        
+        logger.info(f"LLM generated {len(plot_code)} characters of code")
+        logger.debug("Generated code:")
+        logger.debug("="*50)
+        logger.debug(plot_code)
+        logger.debug("="*50)
+
         # Check if the code looks reasonable
         if not plot_code or len(plot_code.strip()) < 10:
+            logger.warning("LLM generated empty or too short code")
             return jsonify({
                 'error': 'LLM generated empty or too short code',
                 'generated_code': plot_code
             }), 500
 
         local_vars = {'df': data_processor.data, 'fig': None}
-        print(f"🔧 About to execute code with df shape: {data_processor.data.shape}")
+        logger.debug(f"Executing code with df shape: {data_processor.data.shape}")
         safe_exec(plot_code, local_vars)
-        print(f"🔍 After execution, local_vars keys: {list(local_vars.keys())}")
 
         fig = local_vars.get('fig')
-        print(f"📊 Fig object type: {type(fig)}")
+        logger.debug(f"Fig object type: {type(fig)}")
 
         if fig:
-            print(f"✅ Plot generated successfully")
+            logger.info("LLM plot generated successfully")
             # Add validation of the fig object
             try:
                 plot_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-                print(f"📄 Plot JSON length: {len(plot_json)} characters")
+                logger.debug(f"Plot JSON length: {len(plot_json)} characters")
                 return jsonify({'plot': plot_json})
             except Exception as json_error:
-                print(f"❌ Error converting fig to JSON: {json_error}")
+                logger.error(f"Error converting fig to JSON: {json_error}")
                 return jsonify({
                     'error': f'Error converting plot to JSON: {json_error}',
                     'generated_code': plot_code,
                     'fig_type': str(type(fig))
                 }), 500
         else:
-            print(f"❌ No fig object created by LLM code")
-            print(f"🔍 Available variables after execution: {list(local_vars.keys())}")
+            logger.warning("No fig object created by LLM code")
+            logger.debug(f"Available variables after execution: {list(local_vars.keys())}")
             return jsonify({
                 'error': 'Could not generate plot from LLM response - no fig object created',
                 'generated_code': plot_code,
@@ -775,7 +839,7 @@ def generate_llm_plot():
 
     except Exception as e:
         error_msg = str(e)
-        print(f"❌ LLM Plot Error: {error_msg}")
+        logger.error(f"LLM Plot Error: {error_msg}", exc_info=True)
         
         # Provide more detailed error information
         return jsonify({
@@ -790,6 +854,7 @@ def generate_llm_plot():
 def export_data():
     """Export filtered or original data as CSV or Excel"""
     if data_processor.data is None:
+        logger.warning("Export attempt with no data loaded")
         return jsonify({'error': 'No data loaded'}), 400
 
     # Validate input
@@ -797,9 +862,11 @@ def export_data():
     try:
         validated_data = schema.load(request.json)
     except ValidationError as err:
+        logger.warning(f"Invalid export configuration: {err.messages}")
         return jsonify({'error': 'Invalid export configuration', 'details': err.messages}), 400
 
     export_format = validated_data['format']
+    logger.info(f"Data export request: format={export_format}, rows={len(data_processor.data)}")
 
     try:
         # Use current data (filtered or original)
@@ -821,6 +888,7 @@ def export_data():
         else:
             return jsonify({'error': 'Invalid export format'}), 400
 
+        logger.info(f"Data exported successfully as {export_format}")
         return send_file(
             buffer,
             mimetype=mimetype,
@@ -829,6 +897,7 @@ def export_data():
         )
 
     except Exception as e:
+        logger.error(f"Export failed: {e}", exc_info=True)
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
 
 @app.route('/export-plot', methods=['POST'])
@@ -839,12 +908,15 @@ def export_plot():
     try:
         validated_data = schema.load(request.json)
     except ValidationError as err:
+        logger.warning(f"Invalid plot export configuration: {err.messages}")
         return jsonify({'error': 'Invalid export configuration', 'details': err.messages}), 400
 
     plot_data = validated_data['plot_data']
     export_format = validated_data['format']
     width = validated_data['width']
     height = validated_data['height']
+
+    logger.info(f"Plot export request: format={export_format}, size={width}x{height}")
 
     try:
         # Reconstruct the figure from JSON
@@ -871,6 +943,7 @@ def export_plot():
         else:
             return jsonify({'error': 'Invalid export format'}), 400
 
+        logger.info(f"Plot exported successfully as {export_format}")
         return send_file(
             buffer,
             mimetype=mimetype,
@@ -879,6 +952,7 @@ def export_plot():
         )
 
     except Exception as e:
+        logger.error(f"Plot export failed: {e}", exc_info=True)
         return jsonify({
             'error': f'Plot export failed: {str(e)}',
             'hint': 'Make sure kaleido is installed: pip install kaleido'
