@@ -1,5 +1,6 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
+from marshmallow import Schema, fields, validate, ValidationError
 import pandas as pd
 import numpy as np
 import plotly.graph_objs as go
@@ -22,6 +23,46 @@ from llm import GeminiLlm, TestLlm
 CACHE_DIR = "/tmp/excel_visualizer_cache"
 CACHE_FILE = "column_type_cache"
 CACHE_TTL_DAYS = 2
+
+# File upload limits
+MAX_FILE_SIZE_MB = 100
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
+# Validation Schemas
+class PlotConfigSchema(Schema):
+    type = fields.Str(
+        required=True,
+        validate=validate.OneOf(['violin', 'histogram', 'box', 'bar', 'scatter'])
+    )
+    columns = fields.List(fields.Str(), required=True)
+    stacked = fields.Bool(missing=False)
+
+class UpdateColumnTypeSchema(Schema):
+    column = fields.Str(required=True)
+    type = fields.Str(
+        required=True,
+        validate=validate.OneOf(['numeric', 'categorical', 'text', 'datetime', 'boolean'])
+    )
+
+class ExpandColumnSchema(Schema):
+    column = fields.Str(required=True)
+
+class FilterConfigSchema(Schema):
+    filters = fields.Dict(keys=fields.Str(), required=True)
+
+class LLMPlotConfigSchema(Schema):
+    prompt = fields.Str(required=True, validate=validate.Length(min=1, max=5000))
+    columns = fields.List(fields.Str(), missing=[])
+    model = fields.Str(missing='gemini', validate=validate.OneOf(['gemini', 'test']))
+
+class ExportDataSchema(Schema):
+    format = fields.Str(required=True, validate=validate.OneOf(['csv', 'excel']))
+
+class ExportPlotSchema(Schema):
+    plot_data = fields.Dict(required=True)
+    format = fields.Str(required=True, validate=validate.OneOf(['png', 'svg', 'pdf']))
+    width = fields.Int(missing=1200, validate=validate.Range(min=100, max=4000))
+    height = fields.Int(missing=800, validate=validate.Range(min=100, max=4000))
 
 def get_cache():
     """Opens and returns the cache shelf."""
@@ -405,15 +446,28 @@ data_processor = DataProcessor()
 def upload_file():
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
-    
+
     if not file.filename.endswith(('.xlsx', '.xls')):
         return jsonify({'error': 'File must be an Excel file (.xlsx or .xls)'}), 400
-    
+
+    # Read file content and check size
     file_content = file.read()
+    file_size = len(file_content)
+
+    if file_size > MAX_FILE_SIZE_BYTES:
+        return jsonify({
+            'error': f'File too large. Maximum size is {MAX_FILE_SIZE_MB}MB',
+            'file_size_mb': round(file_size / (1024 * 1024), 2),
+            'max_size_mb': MAX_FILE_SIZE_MB
+        }), 413
+
+    if file_size == 0:
+        return jsonify({'error': 'File is empty'}), 400
+
     file_hash = hashlib.sha256(file_content).hexdigest()
     data_processor.file_hash = file_hash
 
@@ -440,7 +494,7 @@ def upload_file():
         response_data = convert_to_json_serializable(response_data)
         return jsonify(response_data)
     else:
-        return jsonify({'error': 'Failed to process Excel file'}), 500
+        return jsonify({'error': 'Failed to process Excel file. Please ensure the file is a valid Excel file.'}), 500
 
 @app.route('/column-info', methods=['GET'])
 def get_column_info():
@@ -455,16 +509,19 @@ def get_column_info():
 
 @app.route('/update-column-type', methods=['POST'])
 def update_column_type():
-    data = request.json
-    column = data.get('column')
-    new_type = data.get('type')
-    
-    if not column or not new_type:
-        return jsonify({'error': 'Column and type required'}), 400
-    
+    # Validate input
+    schema = UpdateColumnTypeSchema()
+    try:
+        validated_data = schema.load(request.json)
+    except ValidationError as err:
+        return jsonify({'error': 'Invalid input', 'details': err.messages}), 400
+
+    column = validated_data['column']
+    new_type = validated_data['type']
+
     if column not in data_processor.data.columns:
-        return jsonify({'error': 'Column not found'}), 400
-    
+        return jsonify({'error': f'Column "{column}" not found'}), 404
+
     data_processor.column_info[column]['type'] = new_type
 
     # Update the cache
@@ -476,16 +533,22 @@ def update_column_type():
                     'timestamp': datetime.now()
                 }
 
-    return jsonify({'success': True})
+    return jsonify({'success': True, 'column': column, 'new_type': new_type})
 
 @app.route('/expand-column', methods=['POST'])
 def expand_column():
-    data = request.json
-    column = data.get('column')
-    
-    if not column:
-        return jsonify({'error': 'Column required'}), 400
-    
+    # Validate input
+    schema = ExpandColumnSchema()
+    try:
+        validated_data = schema.load(request.json)
+    except ValidationError as err:
+        return jsonify({'error': 'Invalid input', 'details': err.messages}), 400
+
+    column = validated_data['column']
+
+    if column not in data_processor.data.columns:
+        return jsonify({'error': f'Column "{column}" not found'}), 404
+
     if data_processor.expand_list_column(column):
         response_data = {
             'success': True,
@@ -494,20 +557,31 @@ def expand_column():
         }
         return jsonify(convert_to_json_serializable(response_data))
     else:
-        return jsonify({'error': 'Failed to expand column'}), 500
+        return jsonify({'error': 'Failed to expand column. Please ensure it contains list or set values.'}), 500
 
 @app.route('/plot', methods=['POST'])
 def generate_plot():
     if data_processor.data is None:
         return jsonify({'error': 'No data loaded'}), 400
-    
-    plot_config = request.json
-    plot_data = data_processor.generate_plot(plot_config)
-    
+
+    # Validate input
+    schema = PlotConfigSchema()
+    try:
+        validated_config = schema.load(request.json)
+    except ValidationError as err:
+        return jsonify({'error': 'Invalid plot configuration', 'details': err.messages}), 400
+
+    # Validate that columns exist
+    for col in validated_config['columns']:
+        if col not in data_processor.data.columns:
+            return jsonify({'error': f'Column "{col}" not found in dataset'}), 404
+
+    plot_data = data_processor.generate_plot(validated_config)
+
     if plot_data:
         return jsonify({'plot': plot_data})
     else:
-        return jsonify({'error': 'Could not generate plot with the given configuration'}), 400
+        return jsonify({'error': 'Could not generate plot with the given configuration. Please check column types and plot requirements.'}), 400
 
 @app.route('/data-preview', methods=['GET'])
 def get_data_preview():
@@ -548,9 +622,16 @@ def apply_filters():
     """Apply filters to the dataset"""
     if data_processor.original_data is None:
         return jsonify({'error': 'No data loaded'}), 400
-    
-    filters = request.json.get('filters', {})
-    
+
+    # Validate input
+    schema = FilterConfigSchema()
+    try:
+        validated_data = schema.load(request.json)
+    except ValidationError as err:
+        return jsonify({'error': 'Invalid filter configuration', 'details': err.messages}), 400
+
+    filters = validated_data['filters']
+
     if data_processor.apply_filters(filters):
         # Return updated statistics
         response_data = {
@@ -561,7 +642,7 @@ def apply_filters():
         }
         return jsonify(convert_to_json_serializable(response_data))
     else:
-        return jsonify({'error': 'Failed to apply filters'}), 500
+        return jsonify({'error': 'Failed to apply filters. Please check filter configuration.'}), 500
 
 @app.route('/clear-filters', methods=['POST'])
 def clear_filters():
@@ -629,13 +710,16 @@ def generate_llm_plot():
     if data_processor.data is None:
         return jsonify({'error': 'No data loaded'}), 400
 
-    config = request.json
-    prompt = config.get('prompt')
-    selected_columns = config.get('columns')
-    model = config.get('model', 'gemini')
+    # Validate input
+    schema = LLMPlotConfigSchema()
+    try:
+        validated_config = schema.load(request.json)
+    except ValidationError as err:
+        return jsonify({'error': 'Invalid LLM plot configuration', 'details': err.messages}), 400
 
-    if not prompt:
-        return jsonify({'error': 'Prompt is required'}), 400
+    prompt = validated_config['prompt']
+    selected_columns = validated_config['columns']
+    model = validated_config['model']
 
     try:
         print(f"🤖 LLM Plot Request: model={model}, prompt={prompt[:100]}...")
@@ -700,6 +784,104 @@ def generate_llm_plot():
             'model': model,
             'selected_columns': selected_columns,
             'available_columns': list(data_processor.data.columns) if data_processor.data is not None else []
+        }), 500
+
+@app.route('/export-data', methods=['POST'])
+def export_data():
+    """Export filtered or original data as CSV or Excel"""
+    if data_processor.data is None:
+        return jsonify({'error': 'No data loaded'}), 400
+
+    # Validate input
+    schema = ExportDataSchema()
+    try:
+        validated_data = schema.load(request.json)
+    except ValidationError as err:
+        return jsonify({'error': 'Invalid export configuration', 'details': err.messages}), 400
+
+    export_format = validated_data['format']
+
+    try:
+        # Use current data (filtered or original)
+        df = data_processor.data.copy()
+
+        # Create BytesIO buffer
+        buffer = BytesIO()
+
+        if export_format == 'csv':
+            df.to_csv(buffer, index=False, encoding='utf-8')
+            buffer.seek(0)
+            mimetype = 'text/csv'
+            filename = 'exported_data.csv'
+        elif export_format == 'excel':
+            df.to_excel(buffer, index=False, engine='openpyxl')
+            buffer.seek(0)
+            mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            filename = 'exported_data.xlsx'
+        else:
+            return jsonify({'error': 'Invalid export format'}), 400
+
+        return send_file(
+            buffer,
+            mimetype=mimetype,
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        return jsonify({'error': f'Export failed: {str(e)}'}), 500
+
+@app.route('/export-plot', methods=['POST'])
+def export_plot():
+    """Export plot as static image (PNG, SVG, or PDF)"""
+    # Validate input
+    schema = ExportPlotSchema()
+    try:
+        validated_data = schema.load(request.json)
+    except ValidationError as err:
+        return jsonify({'error': 'Invalid export configuration', 'details': err.messages}), 400
+
+    plot_data = validated_data['plot_data']
+    export_format = validated_data['format']
+    width = validated_data['width']
+    height = validated_data['height']
+
+    try:
+        # Reconstruct the figure from JSON
+        fig = go.Figure(plot_data)
+
+        # Export based on format
+        buffer = BytesIO()
+
+        if export_format == 'png':
+            fig.write_image(buffer, format='png', width=width, height=height)
+            buffer.seek(0)
+            mimetype = 'image/png'
+            filename = 'plot.png'
+        elif export_format == 'svg':
+            fig.write_image(buffer, format='svg', width=width, height=height)
+            buffer.seek(0)
+            mimetype = 'image/svg+xml'
+            filename = 'plot.svg'
+        elif export_format == 'pdf':
+            fig.write_image(buffer, format='pdf', width=width, height=height)
+            buffer.seek(0)
+            mimetype = 'application/pdf'
+            filename = 'plot.pdf'
+        else:
+            return jsonify({'error': 'Invalid export format'}), 400
+
+        return send_file(
+            buffer,
+            mimetype=mimetype,
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        return jsonify({
+            'error': f'Plot export failed: {str(e)}',
+            'hint': 'Make sure kaleido is installed: pip install kaleido'
         }), 500
 
 if __name__ == '__main__':
