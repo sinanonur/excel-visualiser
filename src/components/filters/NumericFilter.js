@@ -8,45 +8,24 @@ import {
   Button,
   Chip
 } from '@mui/material';
-import axios from 'axios';
-import API_BASE_URL from '../../config';
+import useFilterOptions from './useFilterOptions';
 
 const NumericFilter = ({ column, value, onChange, onError }) => {
-  const [options, setOptions] = useState({});
+  const { options, loading } = useFilterOptions(column, onError);
   const [range, setRange] = useState([0, 100]);
   const [pendingRange, setPendingRange] = useState([0, 100]);
-  const [loading, setLoading] = useState(true);
   const [isDirty, setIsDirty] = useState(false);
 
+  const valueMin = value?.min;
+  const valueMax = value?.max;
   useEffect(() => {
-    loadFilterOptions();
-  }, [column]);
-
-  useEffect(() => {
-    if (options.min !== undefined && options.max !== undefined) {
-      const initialRange = [
-        value?.min ?? options.min,
-        value?.max ?? options.max,
-      ];
+    if (typeof options.min === 'number' && typeof options.max === 'number') {
+      const initialRange = [valueMin ?? options.min, valueMax ?? options.max];
       setRange(initialRange);
       setPendingRange(initialRange);
       setIsDirty(false);
     }
-  }, [value, options]);
-
-  const loadFilterOptions = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/filter-options/${column}`);
-      const opts = response.data;
-      setOptions(opts);
-    } catch (error) {
-      onError?.('Failed to load filter options');
-      console.error('Error loading filter options:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [valueMin, valueMax, options.min, options.max]);
 
   const handleSliderChange = (event, newValue) => {
     setPendingRange(newValue);
@@ -97,6 +76,10 @@ const NumericFilter = ({ column, value, onChange, onError }) => {
     return <Typography>Loading options...</Typography>;
   }
 
+  if (typeof options.min !== 'number' || typeof options.max !== 'number') {
+    return <Typography color="text.secondary">This column has no numeric values to filter.</Typography>;
+  }
+
   const isFiltered = range[0] > options.min || range[1] < options.max;
 
   return (
@@ -117,7 +100,8 @@ const NumericFilter = ({ column, value, onChange, onError }) => {
               onChange={handleSliderChange}
               min={options.min}
               max={options.max}
-              step={(options.max - options.min) / 100}
+              step={(options.max - options.min) / 100 || 1}
+              disabled={options.min === options.max}
               valueLabelDisplay="auto"
             />
           </Grid>

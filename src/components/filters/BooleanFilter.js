@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   Box,
   Typography,
@@ -8,44 +8,15 @@ import {
   FormControl,
   Button
 } from '@mui/material';
-import axios from 'axios';
-import API_BASE_URL from '../../config';
+import useFilterOptions from './useFilterOptions';
 
+// Controlled by `value` ({ type: 'boolean', value: true|false } or undefined).
 const BooleanFilter = ({ column, value, onChange, onError }) => {
-  const [options, setOptions] = useState({});
-  const [selectedValue, setSelectedValue] = useState(value?.value !== undefined ? value.value.toString() : '');
-  const [loading, setLoading] = useState(true);
+  const { options, loading } = useFilterOptions(column, onError);
+  const selectedValue = value?.value === undefined || value?.value === null ? '' : String(value.value);
 
-  useEffect(() => {
-    loadFilterOptions();
-  }, [column]);
-
-  useEffect(() => {
-    if (selectedValue === '') {
-      onChange(null);
-    } else {
-      onChange({
-        type: 'boolean',
-        value: selectedValue === 'true'
-      });
-    }
-  }, [selectedValue, onChange]);
-
-  const loadFilterOptions = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/filter-options/${column}`);
-      setOptions(response.data);
-    } catch (error) {
-      onError && onError('Failed to load filter options');
-      console.error('Error loading filter options:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const clearFilter = () => {
-    setSelectedValue('');
+  const handleChange = (newValue) => {
+    onChange(newValue === '' ? null : { type: 'boolean', value: newValue === 'true' });
   };
 
   if (loading) {
@@ -61,7 +32,7 @@ const BooleanFilter = ({ column, value, onChange, onError }) => {
       <FormControl component="fieldset">
         <RadioGroup
           value={selectedValue}
-          onChange={(e) => setSelectedValue(e.target.value)}
+          onChange={(e) => handleChange(e.target.value)}
         >
           <FormControlLabel
             value=""
@@ -82,7 +53,7 @@ const BooleanFilter = ({ column, value, onChange, onError }) => {
       <Box sx={{ mt: 2 }}>
         <Button
           size="small"
-          onClick={clearFilter}
+          onClick={() => handleChange('')}
           disabled={selectedValue === ''}
         >
           Clear Filter

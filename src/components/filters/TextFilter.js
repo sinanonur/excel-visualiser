@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Typography,
@@ -13,72 +13,70 @@ import {
   Chip,
   Alert
 } from '@mui/material';
-import axios from 'axios';
-import API_BASE_URL from '../../config';
+import useFilterOptions from './useFilterOptions';
 
 const TextFilter = ({ column, value, onChange, onError }) => {
-  const [options, setOptions] = useState({});
+  const { options, loading } = useFilterOptions(column, onError);
   const [searchValue, setSearchValue] = useState(value?.value || '');
   const [searchType, setSearchType] = useState(value?.search_type || 'contains');
   const [caseSensitive, setCaseSensitive] = useState(value?.case_sensitive || false);
-  const [loading, setLoading] = useState(true);
+  const [negate, setNegate] = useState(value?.negate || false);
   const [regexError, setRegexError] = useState('');
 
-  useEffect(() => {
-    loadFilterOptions();
-  }, [column]);
-
-  useEffect(() => {
-    updateFilter();
-  }, [searchValue, searchType, caseSensitive]);
-
-  const loadFilterOptions = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/filter-options/${column}`);
-      setOptions(response.data);
-    } catch (error) {
-      onError && onError('Failed to load filter options');
-      console.error('Error loading filter options:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const updateFilter = () => {
+  // Push the current inputs to the parent. Called from the change handlers
+  // (not an effect) so it only runs in response to user edits.
+  const emit = (next) => {
+    const state = { searchValue, searchType, caseSensitive, negate, ...next };
     setRegexError('');
-    
-    if (!searchValue.trim()) {
+
+    if (!state.searchValue.trim()) {
       onChange(null);
       return;
     }
 
-    // Validate regex if using regex search
-    if (searchType === 'regex') {
+    if (state.searchType === 'regex') {
       try {
-        new RegExp(searchValue);
+        new RegExp(state.searchValue);
       } catch (error) {
         setRegexError('Invalid regular expression');
+        onChange(null);
         return;
       }
     }
 
     onChange({
       type: 'text',
-      search_type: searchType,
-      value: searchValue,
-      case_sensitive: caseSensitive
+      search_type: state.searchType,
+      value: state.searchValue,
+      case_sensitive: state.caseSensitive,
+      ...(state.negate ? { negate: true } : {})
     });
+  };
+
+  const handleSearchValue = (newValue) => {
+    setSearchValue(newValue);
+    emit({ searchValue: newValue });
+  };
+
+  const handleSearchType = (newType) => {
+    setSearchType(newType);
+    emit({ searchType: newType });
+  };
+
+  const handleCaseSensitive = (checked) => {
+    setCaseSensitive(checked);
+    emit({ caseSensitive: checked });
+  };
+
+  const handleNegate = (checked) => {
+    setNegate(checked);
+    emit({ negate: checked });
   };
 
   const clearFilter = () => {
     setSearchValue('');
     setRegexError('');
     onChange(null);
-  };
-
-  const handleSampleClick = (sampleValue) => {
-    setSearchValue(sampleValue);
   };
 
   if (loading) {
@@ -96,7 +94,7 @@ const TextFilter = ({ column, value, onChange, onError }) => {
         <RadioGroup
           row
           value={searchType}
-          onChange={(e) => setSearchType(e.target.value)}
+          onChange={(e) => handleSearchType(e.target.value)}
         >
           <FormControlLabel
             value="contains"
@@ -115,7 +113,7 @@ const TextFilter = ({ column, value, onChange, onError }) => {
         fullWidth
         label={searchType === 'regex' ? 'Regular Expression' : 'Search Text'}
         value={searchValue}
-        onChange={(e) => setSearchValue(e.target.value)}
+        onChange={(e) => handleSearchValue(e.target.value)}
         placeholder={
           searchType === 'regex' 
             ? 'e.g., ^[A-Z].*ing$' 
@@ -136,11 +134,23 @@ const TextFilter = ({ column, value, onChange, onError }) => {
         control={
           <Switch
             checked={caseSensitive}
-            onChange={(e) => setCaseSensitive(e.target.checked)}
+            onChange={(e) => handleCaseSensitive(e.target.checked)}
             size="small"
           />
         }
         label="Case sensitive"
+        sx={{ mb: 2 }}
+      />
+
+      <FormControlLabel
+        control={
+          <Switch
+            checked={negate}
+            onChange={(e) => handleNegate(e.target.checked)}
+            size="small"
+          />
+        }
+        label="Exclude matching rows"
         sx={{ mb: 2 }}
       />
 
@@ -177,7 +187,7 @@ const TextFilter = ({ column, value, onChange, onError }) => {
                 key={index}
                 size="small"
                 label={sample}
-                onClick={() => handleSampleClick(sample)}
+                onClick={() => handleSearchValue(String(sample))}
                 clickable
                 variant="outlined"
                 sx={{ maxWidth: 200 }}
@@ -195,6 +205,7 @@ const TextFilter = ({ column, value, onChange, onError }) => {
               {searchValue}
             </code>
             {caseSensitive && ' (case sensitive)'}
+            {negate && ' (excluded)'}
           </Typography>
         </Box>
       )}
