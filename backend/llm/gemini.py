@@ -1,7 +1,6 @@
 import os
 import re
 import pandas as pd
-import google.generativeai as genai
 from .base import LlmBase
 
 class GeminiLlm(LlmBase):
@@ -9,6 +8,12 @@ class GeminiLlm(LlmBase):
         self.api_key = os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
+        # Imported here so the backend starts (and the other plots work)
+        # even when the optional Gemini SDK is not installed.
+        try:
+            import google.generativeai as genai
+        except ImportError as exc:
+            raise ValueError("The google-generativeai package is not installed") from exc
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel(model_name)
 
@@ -55,18 +60,25 @@ Your turn:
     def _get_data_description(self, df: pd.DataFrame, selected_columns: list = None) -> str:
         description = f"The DataFrame has {df.shape[0]} rows and {df.shape[1]} columns.\n"
 
-        if selected_columns:
-            description += f"The user has selected the following columns: {', '.join(selected_columns)}.\n"
-            # Get info for selected columns
-            with pd.option_context('display.max_colwidth', None):
-                info_str = df[selected_columns].info(verbose=True)
-            description += f"Column details:\n{info_str}"
-
+        columns = [c for c in (selected_columns or []) if c in df.columns]
+        if columns:
+            description += f"The user has selected the following columns: {', '.join(columns)}.\n"
         else:
-            # Get info for all columns
-            with pd.option_context('display.max_colwidth', None):
-                info_str = df.info(verbose=True)
-            description += f"Column details:\n{info_str}"
+            columns = list(df.columns)
+
+        # df.info() prints to stdout and returns None, so describe the columns
+        # explicitly: name, dtype, missing count and a few example values.
+        lines = []
+        for col in columns[:60]:
+            series = df[col]
+            examples = [repr(v) for v in series.dropna().unique()[:3].tolist()]
+            lines.append(
+                f"- {col!r}: dtype={series.dtype}, {int(series.isna().sum())} missing, "
+                f"{series.nunique()} unique, examples: {', '.join(examples) or 'none'}"
+            )
+        if len(columns) > 60:
+            lines.append(f"- ... and {len(columns) - 60} more columns")
+        description += "Column details:\n" + "\n".join(lines)
 
         return description
 

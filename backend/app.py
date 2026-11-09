@@ -1,635 +1,354 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import pandas as pd
-import numpy as np
-import plotly.graph_objs as go
-import plotly.express as px
-import plotly.utils
-import json
-import re
-import ast
-from io import BytesIO
-import base64
-import os
-import shelve
+"""Flask API for the Excel Data Science Visualizer.
+
+The server is single-user and stateful: one ``DataProcessor`` holds the loaded
+dataset in memory. A lock serialises requests because the development server
+is threaded and several endpoints mutate that shared state.
+"""
+
+import builtins
+import functools
 import hashlib
-from datetime import datetime, timedelta
+import json
+import os
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__)))
+import threading
+import traceback
+from io import BytesIO
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+import numpy as np
+import pandas as pd
+import plotly
+import plotly.express as px
+import plotly.graph_objs as go
+from flask import Flask, jsonify, request, send_file
+from flask_cors import CORS
+
 from llm import GeminiLlm, TestLlm
-
-# Cache configuration
-CACHE_DIR = "/tmp/excel_visualizer_cache"
-CACHE_FILE = "column_type_cache"
-CACHE_TTL_DAYS = 2
-
-def get_cache():
-    """Opens and returns the cache shelf."""
-    os.makedirs(CACHE_DIR, exist_ok=True)
-    return shelve.open(os.path.join(CACHE_DIR, CACHE_FILE))
-
-def cleanup_cache():
-    """Removes expired entries from the cache."""
-    with get_cache() as cache:
-        expired_keys = [
-            key for key, value in cache.items()
-            if datetime.now() - value['timestamp'] > timedelta(days=CACHE_TTL_DAYS)
-        ]
-        for key in expired_keys:
-            del cache[key]
-
-def convert_to_json_serializable(obj):
-    """Convert pandas/numpy data types to JSON serializable types"""
-    if isinstance(obj, dict):
-        return {key: convert_to_json_serializable(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_to_json_serializable(item) for item in obj]
-    elif isinstance(obj, tuple):
-        return tuple(convert_to_json_serializable(item) for item in obj)
-    elif isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
-        return int(obj)
-    elif isinstance(obj, (np.float16, np.float32, np.float64)):
-        return float(obj)
-    elif isinstance(obj, np.bool_):
-        return bool(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif pd.isna(obj):
-        return None
-    else:
-        return obj
+from plots import PlotError, figure_to_json
+from processing import (  # noqa: F401  (re-exported for existing importers)
+    SUPPORTED_EXTENSIONS,
+    DataError,
+    DataProcessor,
+    convert_to_json_serializable,
+    to_jsonable,
+)
 
 app = Flask(__name__)
-CORS(app)
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_MB', '200')) * 1024 * 1024
+# Keep keys in insertion order so column_info lists columns as they appear in the file.
+app.json.sort_keys = False
 
-class DataProcessor:
-    def __init__(self):
-        self.data = None
-        self.original_data = None
-        self.filtered_data = None
-        self.column_info = {}
-        self.active_filters = {}
-        self.file_hash = None
-    
-    def load_excel(self, file_content):
-        try:
-            self.data = pd.read_excel(BytesIO(file_content))
-            self.original_data = self.data.copy()
-            self.detect_column_types()
-            return True
-        except Exception as e:
-            print(f"Error loading Excel: {e}")
-            return False
-    
-    def detect_column_types(self):
-        self.column_info = {}
-        for col in self.data.columns:
-            col_data = self.data[col]
-            col_data_non_null = col_data.dropna()
 
-            if len(col_data_non_null) == 0:
-                self.column_info[col] = {'type': 'empty', 'has_lists': False, 'unique_values': 0, 'null_count': int(self.data[col].isna().sum())}
-                continue
+def _cors_origins():
+    """Origins allowed to read API responses.
 
-            has_lists = self.detect_lists_or_sets(col_data_non_null)
-            
-            # Default to text
-            col_type = 'text'
+    The dataset is private to the machine, so by default only pages served
+    from localhost may call the API. Set CORS_ORIGINS (comma separated, or
+    ``*``) when the frontend is served from another host.
+    """
+    configured = os.environ.get('CORS_ORIGINS', '').strip()
+    if configured == '*':
+        return '*'
+    if configured:
+        return [origin.strip() for origin in configured.split(',') if origin.strip()]
+    return [r'^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$']
 
-            # Check for numeric types (native or convertible)
-            if col_data_non_null.dtype in ['int64', 'float64']:
-                col_type = 'numeric'
-            elif col_data_non_null.dtype == 'object':
-                # Attempt to convert to numeric
-                numeric_series = pd.to_numeric(col_data_non_null, errors='coerce')
-                # If all non-null values were converted to numbers, it's numeric
-                if not numeric_series.isnull().any():
-                    self.data[col] = pd.to_numeric(self.data[col], errors='coerce')
-                    col_type = 'numeric'
 
-            # If not determined to be numeric, check other types
-            if col_type != 'numeric':
-                if col_data_non_null.dtype == 'bool':
-                    col_type = 'boolean'
-                elif pd.api.types.is_datetime64_any_dtype(col_data_non_null):
-                    col_type = 'datetime'
-                else: # It's a text-like column, let's see if it's categorical
-                    num_unique = len(col_data_non_null.unique())
-                    total_rows = len(self.data)
-
-                    if num_unique < 4:
-                        col_type = 'categorical'
-                    elif (num_unique / total_rows) < 0.1:
-                        col_type = 'categorical'
-                    else:
-                        col_type = 'text'
-            
-            self.column_info[col] = {
-                'type': col_type,
-                'has_lists': has_lists,
-                'unique_values': len(col_data_non_null.unique()),
-                'null_count': self.data[col].isna().sum()
-            }
-    
-    def detect_lists_or_sets(self, series):
-        sample_size = min(100, len(series))
-        sample = series.head(sample_size).astype(str)
-        
-        list_pattern = r'^\s*\[.*\]\s*$'
-        set_pattern = r'^\s*\{.*\}\s*$'
-        
-        list_matches = sum(1 for x in sample if re.match(list_pattern, x))
-        set_matches = sum(1 for x in sample if re.match(set_pattern, x))
-        
-        return (list_matches + set_matches) > sample_size * 0.3
-    
-    def expand_list_column(self, column_name):
-        if column_name not in self.data.columns:
-            return False
-        
-        expanded_data = []
-        for idx, value in self.data[column_name].items():
-            if pd.isna(value):
-                expanded_data.append([])
-                continue
-            
-            try:
-                str_val = str(value).strip()
-                if str_val.startswith('[') and str_val.endswith(']'):
-                    parsed = ast.literal_eval(str_val)
-                    expanded_data.append(parsed if isinstance(parsed, list) else [parsed])
-                elif str_val.startswith('{') and str_val.endswith('}'):
-                    parsed = ast.literal_eval(str_val)
-                    expanded_data.append(list(parsed) if isinstance(parsed, (set, frozenset)) else [parsed])
-                else:
-                    expanded_data.append([str_val])
-            except:
-                expanded_data.append([str(value)])
-        
-        max_len = max(len(items) for items in expanded_data) if expanded_data else 0
-        
-        for i in range(max_len):
-            new_col_name = f"{column_name}_item_{i+1}"
-            self.data[new_col_name] = [items[i] if i < len(items) else None for items in expanded_data]
-        
-        self.detect_column_types()
-        return True
-    
-    def apply_filters(self, filters):
-        """Apply filters to the data and store filtered result"""
-        try:
-            self.active_filters = filters
-            filtered_data = self.original_data.copy()
-            
-            for column, filter_config in filters.items():
-                if column not in filtered_data.columns:
-                    continue
-                
-                filter_type = filter_config.get('type')
-                
-                if filter_type == 'categorical':
-                    # Filter by selected categories
-                    selected_values = filter_config.get('values', [])
-                    if selected_values:
-                        filtered_data = filtered_data[filtered_data[column].isin(selected_values)]
-                
-                elif filter_type == 'numeric':
-                    # Filter by numeric ranges
-                    min_val = filter_config.get('min')
-                    max_val = filter_config.get('max')
-                    
-                    if min_val is not None:
-                        filtered_data = filtered_data[filtered_data[column] >= min_val]
-                    if max_val is not None:
-                        filtered_data = filtered_data[filtered_data[column] <= max_val]
-                
-                elif filter_type == 'text':
-                    # Filter by text contains or regex
-                    search_type = filter_config.get('search_type', 'contains')  # 'contains' or 'regex'
-                    search_value = filter_config.get('value', '')
-                    case_sensitive = filter_config.get('case_sensitive', False)
-                    
-                    if search_value:
-                        if search_type == 'contains':
-                            if case_sensitive:
-                                mask = filtered_data[column].astype(str).str.contains(search_value, na=False)
-                            else:
-                                mask = filtered_data[column].astype(str).str.contains(search_value, case=False, na=False)
-                        elif search_type == 'regex':
-                            try:
-                                if case_sensitive:
-                                    mask = filtered_data[column].astype(str).str.contains(search_value, regex=True, na=False)
-                                else:
-                                    mask = filtered_data[column].astype(str).str.contains(search_value, case=False, regex=True, na=False)
-                            except re.error:
-                                # Invalid regex, skip this filter
-                                continue
-                        
-                        filtered_data = filtered_data[mask]
-                
-                elif filter_type == 'boolean':
-                    # Filter by boolean value
-                    bool_value = filter_config.get('value')
-                    if bool_value is not None:
-                        filtered_data = filtered_data[filtered_data[column] == bool_value]
-            
-            self.filtered_data = filtered_data
-            # Update current working data for plots
-            self.data = filtered_data.copy()
-            return True
-            
-        except Exception as e:
-            print(f"Error applying filters: {e}")
-            return False
-    
-    def clear_filters(self):
-        """Clear all filters and restore original data"""
-        self.active_filters = {}
-        self.filtered_data = None
-        self.data = self.original_data.copy()
-    
-    def get_filter_options(self, column):
-        """Get available filter options for a column"""
-        if column not in self.original_data.columns:
-            return None
-        
-        col_info = self.column_info.get(column, {})
-        col_type = col_info.get('type')
-        
-        if col_type == 'categorical':
-            # Return unique values for categorical columns
-            unique_values = self.original_data[column].dropna().unique().tolist()
-            return {
-                'type': 'categorical',
-                'values': sorted([str(v) for v in unique_values])
-            }
-        
-        elif col_type == 'numeric':
-            # Return min/max for numeric columns
-            col_data = self.original_data[column].dropna()
-            return {
-                'type': 'numeric',
-                'min': float(col_data.min()),
-                'max': float(col_data.max()),
-                'mean': float(col_data.mean()),
-                'std': float(col_data.std())
-            }
-        
-        elif col_type == 'text':
-            # Return text filter options
-            return {
-                'type': 'text',
-                'sample_values': self.original_data[column].dropna().head(10).tolist()
-            }
-        
-        elif col_type == 'boolean':
-            # Return boolean options
-            unique_values = self.original_data[column].dropna().unique().tolist()
-            return {
-                'type': 'boolean',
-                'values': sorted([bool(v) for v in unique_values])
-            }
-        
-        return None
-    
-    def generate_plot(self, plot_config):
-        try:
-            plot_type = plot_config['type']
-            columns = plot_config['columns']
-            
-            if plot_type == 'violin':
-                if len(columns) != 1:
-                    return None
-                col = columns[0]
-                if self.column_info[col]['type'] != 'numeric':
-                    return None
-                
-                fig = go.Figure(data=go.Violin(y=self.data[col].dropna(), name=col))
-                fig.update_layout(title=f'Violin Plot of {col}')
-                
-            elif plot_type == 'bar':
-                if len(columns) == 1:
-                    col = columns[0]
-                    if self.column_info[col]['type'] == 'categorical':
-                        value_counts = self.data[col].value_counts()
-                        fig = go.Figure(data=go.Bar(x=value_counts.index, y=value_counts.values))
-                        fig.update_layout(title=f'Bar Chart of {col}')
-                    else:
-                        return None
-                        
-                elif len(columns) == 2:
-                    col1, col2 = columns
-                    if self.column_info[col1]['type'] == 'categorical' and self.column_info[col2]['type'] == 'categorical':
-                        cross_tab = pd.crosstab(self.data[col1], self.data[col2])
-                        
-                        if plot_config.get('stacked', False):
-                            fig = go.Figure()
-                            for col in cross_tab.columns:
-                                fig.add_trace(go.Bar(
-                                    name=str(col),
-                                    x=cross_tab.index,
-                                    y=cross_tab[col]
-                                ))
-                            fig.update_layout(barmode='stack', title=f'Stacked Bar Chart: {col1} vs {col2}')
-                        else:
-                            fig = go.Figure()
-                            for col in cross_tab.columns:
-                                fig.add_trace(go.Bar(
-                                    name=str(col),
-                                    x=cross_tab.index,
-                                    y=cross_tab[col]
-                                ))
-                            fig.update_layout(barmode='group', title=f'Grouped Bar Chart: {col1} vs {col2}')
-                    else:
-                        return None
-                else:
-                    return None
-                    
-            elif plot_type == 'scatter':
-                if len(columns) != 2:
-                    return None
-                col1, col2 = columns
-                if self.column_info[col1]['type'] == 'numeric' and self.column_info[col2]['type'] == 'numeric':
-                    fig = go.Figure(data=go.Scatter(
-                        x=self.data[col1],
-                        y=self.data[col2],
-                        mode='markers'
-                    ))
-                    fig.update_layout(title=f'Scatter Plot: {col1} vs {col2}')
-                else:
-                    return None
-                    
-            elif plot_type == 'histogram':
-                if len(columns) != 1:
-                    return None
-                col = columns[0]
-                if self.column_info[col]['type'] == 'numeric':
-                    fig = go.Figure(data=go.Histogram(x=self.data[col].dropna()))
-                    fig.update_layout(title=f'Histogram of {col}')
-                else:
-                    return None
-                    
-            elif plot_type == 'box':
-                if len(columns) == 1:
-                    col = columns[0]
-                    if self.column_info[col]['type'] == 'numeric':
-                        fig = go.Figure(data=go.Box(y=self.data[col].dropna(), name=col))
-                        fig.update_layout(title=f'Box Plot of {col}')
-                    else:
-                        return None
-                elif len(columns) == 2:
-                    col1, col2 = columns
-                    if self.column_info[col1]['type'] == 'numeric' and self.column_info[col2]['type'] == 'categorical':
-                        fig = go.Figure()
-                        for category in self.data[col2].unique():
-                            if pd.notna(category):
-                                data_subset = self.data[self.data[col2] == category][col1].dropna()
-                                fig.add_trace(go.Box(y=data_subset, name=str(category)))
-                        fig.update_layout(title=f'Box Plot: {col1} by {col2}')
-                    else:
-                        return None
-                else:
-                    return None
-            else:
-                return None
-            
-            return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-            
-        except Exception as e:
-            print(f"Error generating plot: {e}")
-            return None
+CORS(app, origins=_cors_origins(), expose_headers=['Content-Disposition'])
 
 data_processor = DataProcessor()
+_state_lock = threading.RLock()
+
+
+def locked(view):
+    """Serialise access to the shared DataProcessor."""
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        with _state_lock:
+            return view(*args, **kwargs)
+    return wrapper
+
+
+def needs_data(view):
+    """Serialise access and reject the request if no dataset is loaded."""
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        with _state_lock:
+            if data_processor.data is None:
+                return jsonify({'error': 'No data loaded'}), 400
+            return view(*args, **kwargs)
+    return wrapper
+
+
+def _body():
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _unfiltered():
+    """The unfiltered frame (callers that set ``data`` directly may leave it unset)."""
+    return data_processor.original_data if data_processor.original_data is not None else data_processor.data
+
+
+@app.errorhandler(DataError)
+def handle_data_error(error):
+    return jsonify({'error': str(error)}), 400
+
+
+@app.errorhandler(PlotError)
+def handle_plot_error(error):
+    return jsonify({'error': str(error)}), 400
+
+
+@app.errorhandler(413)
+def handle_too_large(_error):
+    limit_mb = app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
+    return jsonify({'error': f'File is too large (limit {limit_mb} MB)'}), 413
+
+
+# ---------------------------------------------------------------------------
+# Health / session
+# ---------------------------------------------------------------------------
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok', 'data_loaded': data_processor.data is not None})
+
+
+@app.route('/session', methods=['GET'])
+@locked
+def get_session():
+    """Current dataset state, so a reloaded page can pick up where it left off."""
+    if data_processor.data is None or data_processor.original_data is None:
+        return jsonify({'loaded': False})
+    return jsonify(to_jsonable({'loaded': True, **data_processor.state()}))
+
+
+# ---------------------------------------------------------------------------
+# Loading
+# ---------------------------------------------------------------------------
 
 @app.route('/upload', methods=['POST'])
+@locked
 def upload_file():
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
-    
+
     file = request.files['file']
-    if file.filename == '':
+    if not file.filename:
         return jsonify({'error': 'No file selected'}), 400
-    
-    if not file.filename.endswith(('.xlsx', '.xls')):
-        return jsonify({'error': 'File must be an Excel file (.xlsx or .xls)'}), 400
-    
+    if not file.filename.lower().endswith(SUPPORTED_EXTENSIONS):
+        return jsonify({'error': 'Unsupported file type. Upload .xlsx, .xls, .xlsm, .csv or .tsv'}), 400
+
     file_content = file.read()
-    file_hash = hashlib.sha256(file_content).hexdigest()
-    data_processor.file_hash = file_hash
+    if not file_content:
+        return jsonify({'error': 'The file is empty'}), 400
 
-    if data_processor.load_excel(file_content):
-        cleanup_cache()
-        with get_cache() as cache:
-            if file_hash in cache:
-                # Load column types from cache
-                data_processor.column_info = cache[file_hash]['column_info']
-            else:
-                # Store newly detected types in cache
-                cache[file_hash] = {
-                    'column_info': data_processor.column_info,
-                    'timestamp': datetime.now()
-                }
+    data_processor.load_file(file_content, file.filename, sheet=request.form.get('sheet') or None)
+    data_processor.file_hash = hashlib.sha256(file_content).hexdigest()
+    data_processor.restore_overrides()
 
-        response_data = {
-            'success': True,
-            'columns': list(data_processor.data.columns),
-            'column_info': data_processor.column_info,
-            'shape': data_processor.data.shape,
-            'preview': data_processor.data.head(10).to_dict('records')
-        }
-        response_data = convert_to_json_serializable(response_data)
-        return jsonify(response_data)
-    else:
-        return jsonify({'error': 'Failed to process Excel file'}), 500
+    response = {
+        'success': True,
+        **data_processor.state(),
+        'preview': data_processor.get_page(1, 10)['data'],
+    }
+    return jsonify(to_jsonable(response))
+
+
+@app.route('/select-sheet', methods=['POST'])
+@needs_data
+def select_sheet():
+    sheet = _body().get('sheet')
+    if not sheet:
+        return jsonify({'error': 'Sheet name required'}), 400
+    data_processor.select_sheet(sheet)
+    return jsonify(to_jsonable({'success': True, **data_processor.state()}))
+
+
+# ---------------------------------------------------------------------------
+# Columns
+# ---------------------------------------------------------------------------
 
 @app.route('/column-info', methods=['GET'])
+@needs_data
 def get_column_info():
-    if data_processor.data is None:
-        return jsonify({'error': 'No data loaded'}), 400
-    
-    response_data = {
+    return jsonify(to_jsonable({
         'columns': list(data_processor.data.columns),
-        'column_info': data_processor.column_info
-    }
-    return jsonify(convert_to_json_serializable(response_data))
+        'column_info': data_processor.column_info,
+    }))
+
 
 @app.route('/update-column-type', methods=['POST'])
+@needs_data
 def update_column_type():
-    data = request.json
-    column = data.get('column')
-    new_type = data.get('type')
-    
+    body = _body()
+    column, new_type = body.get('column'), body.get('type')
     if not column or not new_type:
         return jsonify({'error': 'Column and type required'}), 400
-    
-    if column not in data_processor.data.columns:
-        return jsonify({'error': 'Column not found'}), 400
-    
-    data_processor.column_info[column]['type'] = new_type
 
-    # Update the cache
-    if data_processor.file_hash:
-        with get_cache() as cache:
-            if data_processor.file_hash in cache:
-                cache[data_processor.file_hash] = {
-                    'column_info': data_processor.column_info,
-                    'timestamp': datetime.now()
-                }
+    result = data_processor.set_column_type(column, new_type)
+    return jsonify(to_jsonable({'success': True, **result, **data_processor.state()}))
 
-    return jsonify({'success': True})
 
 @app.route('/expand-column', methods=['POST'])
+@needs_data
 def expand_column():
-    data = request.json
-    column = data.get('column')
-    
+    body = _body()
+    column = body.get('column')
     if not column:
         return jsonify({'error': 'Column required'}), 400
-    
-    if data_processor.expand_list_column(column):
-        response_data = {
-            'success': True,
-            'columns': list(data_processor.data.columns),
-            'column_info': data_processor.column_info
-        }
-        return jsonify(convert_to_json_serializable(response_data))
-    else:
-        return jsonify({'error': 'Failed to expand column'}), 500
 
-@app.route('/plot', methods=['POST'])
-def generate_plot():
-    if data_processor.data is None:
-        return jsonify({'error': 'No data loaded'}), 400
-    
-    plot_config = request.json
-    plot_data = data_processor.generate_plot(plot_config)
-    
-    if plot_data:
-        return jsonify({'plot': plot_data})
-    else:
-        return jsonify({'error': 'Could not generate plot with the given configuration'}), 400
+    new_columns = data_processor.expand_list_column(column, mode=body.get('mode') or 'positional')
+    return jsonify(to_jsonable({'success': True, 'new_columns': new_columns, **data_processor.state()}))
+
+
+# ---------------------------------------------------------------------------
+# Preview / profile / export
+# ---------------------------------------------------------------------------
 
 @app.route('/data-preview', methods=['GET'])
+@needs_data
 def get_data_preview():
-    if data_processor.data is None:
-        return jsonify({'error': 'No data loaded'}), 400
-    
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
-    
-    start_idx = (page - 1) * per_page
-    end_idx = start_idx + per_page
-    
-    data_slice = data_processor.data.iloc[start_idx:end_idx]
-    
-    response_data = {
-        'data': data_slice.to_dict('records'),
-        'total_rows': len(data_processor.data),
-        'page': page,
-        'per_page': per_page,
-        'total_pages': (len(data_processor.data) + per_page - 1) // per_page
-    }
-    return jsonify(convert_to_json_serializable(response_data))
+    page = data_processor.get_page(
+        page=request.args.get('page', 1, type=int),
+        per_page=request.args.get('per_page', 50, type=int),
+        sort_by=request.args.get('sort_by') or None,
+        sort_dir=request.args.get('sort_dir', 'asc'),
+        search=request.args.get('search') or None,
+    )
+    return jsonify(page)
 
-@app.route('/filter-options/<column>', methods=['GET'])
+
+@app.route('/profile', methods=['GET'])
+@needs_data
+def get_profile():
+    return jsonify(to_jsonable(data_processor.profile()))
+
+
+@app.route('/export', methods=['GET'])
+@needs_data
+def export_data():
+    payload, filename, mimetype = data_processor.export(
+        file_format=request.args.get('format', 'csv').lower(),
+        scope=request.args.get('scope', 'filtered').lower(),
+    )
+    return send_file(BytesIO(payload), mimetype=mimetype, as_attachment=True, download_name=filename)
+
+
+# ---------------------------------------------------------------------------
+# Filters
+# ---------------------------------------------------------------------------
+
+def _filter_options_response(column):
+    if not column:
+        return jsonify({'error': 'Column required'}), 400
+    options = data_processor.get_filter_options(column)
+    if options is None:
+        return jsonify({'error': f'No filter available for column "{column}"'}), 404
+    return jsonify(to_jsonable(options))
+
+
+@app.route('/filter-options', methods=['GET'])
+@needs_data
+def get_filter_options_by_query():
+    """Preferred form: ``/filter-options?column=<name>`` works for any column name."""
+    return _filter_options_response(request.args.get('column'))
+
+
+@app.route('/filter-options/<path:column>', methods=['GET'])
+@needs_data
 def get_filter_options(column):
-    """Get available filter options for a specific column"""
-    if data_processor.original_data is None:
-        return jsonify({'error': 'No data loaded'}), 400
-    
-    filter_options = data_processor.get_filter_options(column)
-    if filter_options is None:
-        return jsonify({'error': 'Column not found'}), 404
-    
-    return jsonify(convert_to_json_serializable(filter_options))
+    return _filter_options_response(column)
+
 
 @app.route('/apply-filters', methods=['POST'])
+@needs_data
 def apply_filters():
-    """Apply filters to the dataset"""
-    if data_processor.original_data is None:
-        return jsonify({'error': 'No data loaded'}), 400
-    
-    filters = request.json.get('filters', {})
-    
-    if data_processor.apply_filters(filters):
-        # Return updated statistics
-        response_data = {
-            'success': True,
-            'filtered_rows': len(data_processor.data),
-            'total_rows': len(data_processor.original_data),
-            'active_filters': data_processor.active_filters
-        }
-        return jsonify(convert_to_json_serializable(response_data))
-    else:
-        return jsonify({'error': 'Failed to apply filters'}), 500
+    data_processor.apply_filters(_body().get('filters', {}))
+    return jsonify(to_jsonable({'success': True, **data_processor.filter_status()}))
+
 
 @app.route('/clear-filters', methods=['POST'])
+@needs_data
 def clear_filters():
-    """Clear all filters and restore original data"""
-    if data_processor.original_data is None:
-        return jsonify({'error': 'No data loaded'}), 400
-    
     data_processor.clear_filters()
-    
-    response_data = {
-        'success': True,
-        'total_rows': len(data_processor.data)
-    }
-    return jsonify(convert_to_json_serializable(response_data))
+    return jsonify(to_jsonable({'success': True, **data_processor.filter_status()}))
+
 
 @app.route('/filter-status', methods=['GET'])
+@needs_data
 def get_filter_status():
-    """Get current filter status and statistics"""
-    if data_processor.original_data is None:
-        return jsonify({'error': 'No data loaded'}), 400
-    
-    response_data = {
+    return jsonify(to_jsonable({
         'has_filters': len(data_processor.active_filters) > 0,
         'active_filters': data_processor.active_filters,
         'filtered_rows': len(data_processor.data),
-        'total_rows': len(data_processor.original_data)
-    }
-    return jsonify(convert_to_json_serializable(response_data))
+        'total_rows': len(_unfiltered()),
+    }))
+
+
+# ---------------------------------------------------------------------------
+# Plots
+# ---------------------------------------------------------------------------
+
+@app.route('/plot', methods=['POST'])
+@needs_data
+def generate_plot():
+    try:
+        fig = data_processor.build_figure(_body())
+    except PlotError:
+        raise
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({'error': f'Could not generate plot: {exc}'}), 500
+    return jsonify({'plot': figure_to_json(fig)})
+
+
+# Modules LLM-generated plot code may import. This narrows what a bad
+# response can do by accident; it is NOT a security sandbox (pandas itself can
+# read and write files), so only enable AI plots for models you trust.
+_LLM_ALLOWED_MODULES = {
+    'plotly', 'pandas', 'numpy', 'math', 'statistics', 'datetime', 'json', 're',
+    'collections', 'itertools', 'functools', 'scipy', 'sklearn',
+}
+_LLM_BLOCKED_BUILTINS = {
+    'open', 'exec', 'eval', 'compile', 'input', 'breakpoint', 'exit', 'quit', 'help',
+}
+
+
+def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
+    if level != 0 or name.split('.')[0] not in _LLM_ALLOWED_MODULES:
+        raise ImportError(f'Import of "{name}" is not allowed in generated plot code')
+    return builtins.__import__(name, globals, locals, fromlist, level)
+
 
 def safe_exec(code, local_vars):
-    """Safely execute generated code."""
-    allowed_globals = {
-        'go': go,
-        'px': px,
-        'pd': pd,
-        'np': np,
-        'json': json,
-        'plotly': plotly
-    }
+    """Run generated plot code with a reduced set of builtins and imports."""
+    safe_builtins = {name: value for name, value in vars(builtins).items()
+                     if name not in _LLM_BLOCKED_BUILTINS}
+    safe_builtins['__import__'] = _restricted_import
+    scope = {'__builtins__': safe_builtins, 'go': go, 'px': px, 'pd': pd, 'np': np,
+             'json': json, 'plotly': plotly}
+    # One namespace for globals and locals so functions and comprehensions
+    # defined by the generated code can see ``df`` and each other.
+    scope.update(local_vars)
     try:
-        print(f"🚀 Executing code in safe environment...")
-        print(f"📊 Available globals: {list(allowed_globals.keys())}")
-        print(f"📊 Local vars before: {list(local_vars.keys())}")
-        exec(code, allowed_globals, local_vars)
-        print(f"📊 Local vars after: {list(local_vars.keys())}")
-        print(f"✅ Code execution completed successfully")
-    except Exception as e:
-        print(f"❌ Error executing plot code: {e}")
-        print(f"❌ Error type: {type(e).__name__}")
-        print(f"📝 Plot code was:")
-        print("-" * 30)
-        # Print code with line numbers for easier debugging
-        for i, line in enumerate(code.split('\n'), 1):
-            print(f"{i:3}: {line}")
-        print("-" * 30)
-        
-        # Print more detailed error information
-        import traceback
-        print(f"🔍 Full traceback:")
+        exec(code, scope)
+    except Exception as exc:
+        print(f'Error executing plot code: {type(exc).__name__}: {exc}')
+        for number, line in enumerate(code.split('\n'), 1):
+            print(f'{number:3}: {line}')
         traceback.print_exc()
         raise
+    local_vars.update({key: value for key, value in scope.items() if key != '__builtins__'})
+
 
 @app.route('/generate-llm-plot', methods=['POST'])
+@needs_data
 def generate_llm_plot():
-    if data_processor.data is None:
-        return jsonify({'error': 'No data loaded'}), 400
-
-    config = request.json
+    config = _body()
     prompt = config.get('prompt')
     selected_columns = config.get('columns')
     model = config.get('model', 'gemini')
@@ -637,71 +356,41 @@ def generate_llm_plot():
     if not prompt:
         return jsonify({'error': 'Prompt is required'}), 400
 
+    plot_code = None
     try:
-        print(f"🤖 LLM Plot Request: model={model}, prompt={prompt[:100]}...")
-        
-        if model == 'test':
-            llm = TestLlm()
-        else:
-            llm = GeminiLlm()
-
+        llm = TestLlm() if model == 'test' else GeminiLlm()
         plot_code = llm.generate_plot_code(prompt, data_processor.data, selected_columns)
-        print(f"📝 Generated plot code ({len(plot_code)} characters):")
-        print("="*50)
-        print(plot_code)
-        print("="*50)
-        
-        # Check if the code looks reasonable
+
         if not plot_code or len(plot_code.strip()) < 10:
-            return jsonify({
-                'error': 'LLM generated empty or too short code',
-                'generated_code': plot_code
-            }), 500
+            return jsonify({'error': 'LLM generated empty or too short code',
+                            'generated_code': plot_code}), 500
 
-        local_vars = {'df': data_processor.data, 'fig': None}
-        print(f"🔧 About to execute code with df shape: {data_processor.data.shape}")
+        # A copy, so generated code cannot alter the loaded dataset.
+        local_vars = {'df': data_processor.data.copy(), 'fig': None}
         safe_exec(plot_code, local_vars)
-        print(f"🔍 After execution, local_vars keys: {list(local_vars.keys())}")
-
         fig = local_vars.get('fig')
-        print(f"📊 Fig object type: {type(fig)}")
+        if fig is None:
+            return jsonify({'error': 'The generated code did not create a "fig" object',
+                            'generated_code': plot_code}), 500
+        return jsonify({'plot': figure_to_json(fig), 'generated_code': plot_code})
 
-        if fig:
-            print(f"✅ Plot generated successfully")
-            # Add validation of the fig object
-            try:
-                plot_json = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-                print(f"📄 Plot JSON length: {len(plot_json)} characters")
-                return jsonify({'plot': plot_json})
-            except Exception as json_error:
-                print(f"❌ Error converting fig to JSON: {json_error}")
-                return jsonify({
-                    'error': f'Error converting plot to JSON: {json_error}',
-                    'generated_code': plot_code,
-                    'fig_type': str(type(fig))
-                }), 500
-        else:
-            print(f"❌ No fig object created by LLM code")
-            print(f"🔍 Available variables after execution: {list(local_vars.keys())}")
-            return jsonify({
-                'error': 'Could not generate plot from LLM response - no fig object created',
-                'generated_code': plot_code,
-                'available_vars': list(local_vars.keys())
-            }), 500
-
-    except Exception as e:
-        error_msg = str(e)
-        print(f"❌ LLM Plot Error: {error_msg}")
-        
-        # Provide more detailed error information
+    except Exception as exc:
+        print(f'LLM plot error: {exc}')
         return jsonify({
-            'error': f'Error generating plot: {error_msg}',
-            'prompt': prompt,
+            'error': f'Error generating plot: {exc}',
+            'generated_code': plot_code,
             'model': model,
             'selected_columns': selected_columns,
-            'available_columns': list(data_processor.data.columns) if data_processor.data is not None else []
+            'available_columns': list(data_processor.data.columns),
         }), 500
 
+
 if __name__ == '__main__':
-    host = os.environ.get('FLASK_HOST', '0.0.0.0')
-    app.run(host=host, debug=True, port=5001)
+    # Local-only by default: the API exposes the loaded dataset and runs
+    # generated code, so it must not listen on the network unless asked to
+    # (Docker sets FLASK_HOST=0.0.0.0). FLASK_DEBUG=1 enables the reloader
+    # and debugger for development.
+    host = os.environ.get('FLASK_HOST', '127.0.0.1')
+    port = int(os.environ.get('FLASK_PORT', '5001'))
+    debug = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes')
+    app.run(host=host, port=port, debug=debug)
