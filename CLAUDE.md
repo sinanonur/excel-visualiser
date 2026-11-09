@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Excel Data Science Visualizer is a full-stack web application for exploring and visualizing Excel datasets. It features automatic data type detection, smart list/set column expansion, advanced filtering, and interactive plotting capabilities.
+Excel Data Science Visualizer is a full-stack web application for exploring and visualizing Excel and CSV datasets. It features automatic data type detection, a data profile with quality alerts, smart list/set column expansion, advanced filtering, export, and interactive plotting capabilities.
 
 ## Architecture
 
@@ -14,15 +14,19 @@ Excel Data Science Visualizer is a full-stack web application for exploring and 
 - **Data Processing**: Pandas-based pipeline with Plotly for interactive charts
 
 ### Key Components
-- `backend/app.py`: Flask server with DataProcessor class handling Excel parsing, filtering, and plotting
-- `src/components/`: React components for file upload, data preview, filtering, and visualization
-- `src/App.js`: Main application with tab-based navigation (Data Preview, Column Management, Filters, Visualizations)
+- `backend/app.py`: Flask routes only (plus the AI-plot execution helper)
+- `backend/processing.py`: `DataProcessor` - loading, type detection/conversion, list expansion, filtering, preview paging, profiling, export
+- `backend/plots.py`: Plotly figure builders; raise `PlotError` with a user-facing reason
+- `backend/llm/`: LLM back-ends for the AI plot (`GeminiLlm`, offline `TestLlm`)
+- `src/components/`: React components for file upload, data preview, profile, filtering, and visualization
+- `src/App.js`: Main application; owns the dataset state mirrored from the backend and the tab navigation (Data Preview, Profile, Column Management, Filters, Visualizations)
 
 ### Data Flow
-1. Excel files uploaded via React dropzone component
+1. Excel (.xlsx/.xls/.xlsm) or CSV/TSV files uploaded via React dropzone component
 2. Backend processes with pandas, detects column types (numeric, categorical, text, datetime, boolean, lists/sets)
-3. Frontend displays data preview with pagination and type-aware filtering options
+3. Frontend displays data preview (paging, sorting, search), a data profile, and type-aware filtering options
 4. Plotly generates interactive visualizations that respect active filters
+5. The filtered data can be exported as CSV or Excel
 
 ## Installation & Deployment
 
@@ -185,6 +189,14 @@ npm run build
 npm test
 ```
 
+The frontend reads the backend URL from `REACT_APP_API_URL` (default `http://localhost:5001`).
+
+**Backend environment variables:**
+- `FLASK_HOST` (default `127.0.0.1`; Docker sets `0.0.0.0`), `FLASK_PORT` (default `5001`)
+- `FLASK_DEBUG=1` enables the reloader/debugger (off by default - without it, restart the backend after editing Python files)
+- `CORS_ORIGINS`: comma-separated allowed origins, or `*`. Default: localhost origins only
+- `MAX_UPLOAD_MB` (default `200`), `GEMINI_API_KEY` (AI plots), `EXCEL_VISUALIZER_CACHE_DIR` (type-override cache)
+
 **Unified Development:**
 ```bash
 # Start both servers (use platform-specific script)
@@ -195,28 +207,48 @@ npm test
 ## Key APIs
 
 ### Backend Endpoints (Flask)
-- `POST /upload`: Process Excel files and detect column types
+- `GET /health`: Liveness check (used by the Docker health check)
+- `GET /session`: Current dataset state, so a reloaded page resumes the loaded file
+- `POST /upload`: Load .xlsx/.xls/.xlsm/.csv/.tsv and detect column types (optional form field `sheet`)
+- `POST /select-sheet`: Switch to another sheet of the uploaded workbook
 - `GET /column-info`: Retrieve current column metadata
-- `POST /update-column-type`: Manually override column data types
-- `POST /expand-column`: Expand list/set columns into separate columns
-- `POST /apply-filters`: Apply filtering criteria to dataset
-- `POST /plot`: Generate interactive Plotly visualizations
-- `GET /data-preview`: Paginated data preview with filter support
+- `POST /update-column-type`: Override a column type **and convert its values** (reports values that could not be converted)
+- `POST /expand-column`: Expand list/set columns; `mode` is `positional` (`col_item_1..n`) or `onehot` (boolean `col [item]` columns)
+- `GET /filter-options?column=`: Values/ranges needed to build a filter (`/filter-options/<column>` also works)
+- `POST /apply-filters`, `POST /clear-filters`, `GET /filter-status`: Manage filters
+- `GET /data-preview`: Paginated preview; supports `sort_by`, `sort_dir`, `search`
+- `GET /profile`: Per-column statistics, histograms, correlations and data-quality alerts for the filtered data
+- `GET /export?format=csv|xlsx&scope=filtered|all`: Download the data
+- `POST /plot`: Generate interactive Plotly visualizations (errors explain what to change)
+- `POST /generate-llm-plot`: Plot from a natural-language prompt
+
+Most state-changing endpoints return the full dataset state (`columns`, `column_info`, `shape`, filter status), which the frontend merges into its own state.
 
 ### Data Processing Features
-- **Smart Type Detection**: Automatically identifies numeric, categorical, text, datetime, boolean, and list/set columns
-- **List/Set Expansion**: Parses `[item1, item2]` or `{item1, item2}` formatted columns into separate boolean columns
-- **Advanced Filtering**: Type-aware filters (categorical selection, numeric ranges, text patterns, boolean values)
-- **Filter-Aware Plotting**: All visualizations respect currently active filters
+- **Smart Type Detection**: numeric, categorical, text, datetime (including text dates in CSVs, month-first or day-first), boolean, and list/set columns
+- **Type Overrides Convert Data**: conversions always start from the raw values, so they are reversible; overrides are remembered per file for 2 days
+- **List/Set Expansion**: Parses `[item1, item2]` or `{item1, item2}` cells (quoted or bare words) into positional columns or one boolean column per item
+- **Advanced Filtering**: categorical selection, numeric ranges, text contains/regex (optionally negated), boolean values, date ranges
+- **Data Profile**: missing values, duplicates, distribution statistics, top values, correlations, and alerts (mixed types, constant columns, outliers, skew, high cardinality, high correlation). Thresholds are constants at the top of `backend/processing.py`
+- **Plot Types**: histogram, box, violin, bar (counts, split, or aggregated numeric), pie, scatter (colour-by, trendline), line (date grouping), correlation heatmap, AI custom
+- **Filter-Aware**: previews, profile, plots and exports all use the filtered data
+
+### Dataset State Model
+`DataProcessor` keeps three frames: `raw_data` (as loaded, plus expanded columns), `original_data` (typed, unfiltered) and `data` (typed, filtered). Filters never rebuild from the raw file, so expanded columns and type conversions survive filtering.
 
 ## Testing
 
-Test files are provided:
-- `test_data.xlsx`: Sample Excel file for testing functionality
-- `test_upload.py`: Backend upload functionality tests
-- `test_filtering.py`: Data filtering tests
+**Backend unit tests (no server needed):**
+```bash
+pip install -r requirements-dev.txt
+python -m pytest            # runs tests/unit against the Flask test client
+```
 
-Run Python tests manually as there's no automated test runner configured.
+`tests/unit/conftest.py` builds an in-memory workbook covering every column type; add cases there rather than new fixture files.
+
+**Legacy smoke tests (need a running backend on port 5001):** `tests/test_upload.py`, `tests/test_filtering.py`, using `test_data.xlsx`.
+
+There are no frontend unit tests. Before committing frontend changes run `CI=true npm run build`, which fails on any ESLint warning.
 
 ## Architecture Notes
 
@@ -225,6 +257,8 @@ The application uses a stateful backend approach where the DataProcessor class m
 The frontend uses React state management for UI interactions and communicates with the backend via Axios HTTP requests. Material-UI provides the component library for consistent styling.
 
 All visualizations are generated server-side using Plotly and returned as JSON for rendering in the React frontend using react-plotly.js.
+
+**Security posture:** the app is a single-user local tool. The backend binds to localhost, only accepts cross-origin requests from localhost pages, and has no authentication. AI plots execute model-generated Python with a restricted import list; that limits accidents but is not a sandbox, so do not expose the backend to untrusted networks.
 
 ## Windows MSI Package
 
@@ -288,7 +322,7 @@ The MSI installer provides a professional Windows installation experience with t
 ### MSI Structure
 
 **Files:**
-- `installer/Product.wxs`: WiX configuration with online/offline conditional compilation
+- `installer/Product.wxs`: WiX configuration with online/offline conditional compilation. It lists every source file explicitly: **when you add a backend module or a React component, add a `<File>` entry here** or the MSI will ship without it
 - `installer/License.rtf`: License agreement for installer
 - `installer/README.md`: Detailed MSI documentation
 - `build-msi.ps1`: PowerShell script to build MSI (supports `-Offline` flag)
@@ -500,7 +534,11 @@ The Docker image can be deployed to:
 ```
 excel-visualiser/
 ├── backend/                  # Flask application
-│   └── app.py               # Main backend server
+│   ├── app.py               # Routes
+│   ├── processing.py        # DataProcessor (load, types, filters, profile, export)
+│   ├── plots.py             # Plotly figure builders
+│   └── llm/                 # AI plot back-ends
+├── tests/unit/              # pytest suite (in-process)
 ├── src/                     # React frontend source
 │   ├── components/          # UI components
 │   │   └── filters/        # Filter components
@@ -536,6 +574,8 @@ excel-visualiser/
 ├── install-windows.ps1      # Full Windows installer
 │
 ├── requirements.txt         # Python dependencies
+├── requirements-dev.txt     # + pytest
+├── pytest.ini               # Test configuration
 ├── package.json             # Node.js dependencies
 ├── INSTALLATION_GUIDE.md    # Detailed installation docs
 ├── CLAUDE.md               # This file (project instructions)

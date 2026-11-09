@@ -11,13 +11,14 @@ services:
       - "5001:5001"
     environment:
       - FLASK_ENV=production
+      - FLASK_HOST=0.0.0.0
       - NODE_ENV=production
     volumes:
       # Mount a volume for persistent data storage (optional)
       - excel-data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/"]
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
       timeout: 10s
       retries: 3

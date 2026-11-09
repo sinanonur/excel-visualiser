@@ -246,6 +246,8 @@
     <ComponentGroup Id="BackendComponents" Directory="BACKENDDIR">
       <Component Id="BackendFiles" Guid="22222222-2222-2222-2222-222222222222">
         <File Id="BackendApp" Source="backend\app.py" KeyPath="yes" />
+        <File Id="BackendProcessing" Source="backend\processing.py" />
+        <File Id="BackendPlots" Source="backend\plots.py" />
         <File Id="BackendTestLLMPlot" Source="backend\test_llm_plot.py" />
       </Component>
     </ComponentGroup>
@@ -284,6 +286,7 @@
       <Component Id="FrontendComponentFiles" Guid="44444444-4444-4444-4444-444444444444">
         <File Id="FileUpload" Source="src\components\FileUpload.js" KeyPath="yes" />
         <File Id="DataPreview" Source="src\components\DataPreview.js" />
+        <File Id="DataProfile" Source="src\components\DataProfile.js" />
         <File Id="ColumnManager" Source="src\components\ColumnManager.js" />
         <File Id="FilterManager" Source="src\components\FilterManager.js" />
         <File Id="PlotGenerator" Source="src\components\PlotGenerator.js" />
@@ -297,6 +300,8 @@
         <File Id="CategoricalFilter" Source="src\components\filters\CategoricalFilter.js" />
         <File Id="NumericFilter" Source="src\components\filters\NumericFilter.js" />
         <File Id="TextFilter" Source="src\components\filters\TextFilter.js" />
+        <File Id="DateFilter" Source="src\components\filters\DateFilter.js" />
+        <File Id="UseFilterOptions" Source="src\components\filters\useFilterOptions.js" />
       </Component>
     </ComponentGroup>
 

@@ -51,9 +51,13 @@ npm start
 ## Testing Instructions
 
 ```bash
-# Backend tests (run manually - no automated test runner)
-python test_upload.py
-python test_filtering.py
+# Backend unit tests (in-process, no server needed)
+pip install -r requirements-dev.txt
+python -m pytest
+
+# Legacy smoke tests against a running backend on port 5001
+python tests/test_upload.py
+python tests/test_filtering.py
 
 # Frontend tests
 npm test

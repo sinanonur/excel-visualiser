@@ -67,6 +67,10 @@ RUN apt-get update && \
 # Make sure scripts use the user Python packages
 ENV PATH=/root/.local/bin:$PATH
 
+# The backend listens on localhost only by default; inside a container it
+# must bind all interfaces so the published port is reachable.
+ENV FLASK_HOST=0.0.0.0
+
 # Expose ports
 EXPOSE 5001 3000
 
@@ -78,7 +82,7 @@ cd frontend/build && serve -s . -l 3000\n\
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:5001/ || exit 1
+    CMD curl -f http://localhost:5001/health || exit 1
 
 # Start both services
 CMD ["/app/start.sh"]

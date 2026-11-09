@@ -23,6 +23,7 @@ a = Analysis(
         'plotly.express',
         'plotly.utils',
         'openpyxl',
+        'xlrd',
         'sklearn',
         'seaborn',
         'matplotlib',
