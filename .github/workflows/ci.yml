@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: Backend tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest
+
+  frontend-build:
+    name: Frontend build (lint as errors)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          CI: 'true'
+
+  standalone:
+    name: Standalone package (${{ matrix.os }})
+    needs: [backend-tests, frontend-build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            build: bash build-standalone.sh
+            executable: standalone/runtime/excel-visualizer-backend/excel-visualizer-backend
+          - os: windows-latest
+            build: pwsh -NoProfile -File build-standalone.ps1
+            executable: standalone/runtime/excel-visualizer-backend/excel-visualizer-backend.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Build standalone package
+        run: ${{ matrix.build }}
+        env:
+          CI: 'true'
+      - name: Smoke-test the package
+        run: python scripts/smoke_standalone.py ${{ matrix.executable }}
+      - name: Package size
+        shell: bash
+        run: du -sh standalone standalone/runtime excel-visualizer-standalone-* || true
+
+  docker:
+    name: Docker image
+    needs: [backend-tests, frontend-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t excel-visualizer:ci .
+      - name: Start container
+        run: docker run -d --name app -p 3000:3000 -p 5001:5001 excel-visualizer:ci
+      - name: Check backend, upload and web page
+        run: |
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:5001/health && break
+            sleep 2
+          done
+          curl -fsS http://localhost:5001/health
+          curl -fsS -F "file=@test_data.xlsx" http://localhost:5001/upload | grep -q '"shape":\[5,8\]'
+          curl -fsS http://localhost:3000/ | grep -q 'id="root"'
+      - name: Container log
+        if: always()
+        run: docker logs app || true

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Standalone Build Script - Bundles Python, Node.js, and all dependencies
-# Creates a fully portable application requiring NO external dependencies
+# Standalone build (Linux/macOS): one folder with a single executable that
+# contains Python, every library, the API and the web page.
+# Users need nothing installed. Build machine needs Python 3.11 and Node.js.
 
 set -e
 
-# Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -14,204 +14,132 @@ print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 
+cd "$(dirname "$0")"
+
 echo "============================================================"
-echo "  Excel Data Visualizer - Standalone Build (with Python)  "
+echo "  Excel Data Visualizer - Standalone Build                 "
 echo "============================================================"
 echo
 
-# Detect platform
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     PLATFORM="linux"
-    PYTHON_EMBED_URL="https://www.python.org/ftp/python/3.11.5/Python-3.11.5.tgz"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     PLATFORM="macos"
-    PYTHON_EMBED_URL="https://www.python.org/ftp/python/3.11.5/python-3.11.5-macos11.pkg"
 else
     print_warning "Unsupported platform for this script. Use build-standalone.ps1 for Windows"
     exit 1
 fi
-
 print_info "Building for platform: $PLATFORM"
-echo
 
-# Clean previous builds
-print_info "Cleaning previous builds..."
-rm -rf standalone build dist 2>/dev/null || true
-
-# Create standalone directory structure
-print_info "Creating standalone directory structure..."
-mkdir -p standalone/app
-mkdir -p standalone/python
-mkdir -p standalone/runtime
-
-# Build frontend
-print_info "Building optimized frontend..."
-npm run build
-cp -r build standalone/app/frontend
-
-# Copy backend
-print_info "Copying backend application..."
-cp -r backend standalone/app/
-cp start_backend.py standalone/app/
-cp requirements.txt standalone/app/
-
-# Install PyInstaller if not present
-if ! python3 -c "import PyInstaller" 2>/dev/null; then
-    print_info "Installing PyInstaller..."
-    pip install pyinstaller
+PYTHON="${PYTHON:-}"
+if [ -z "$PYTHON" ]; then
+    for candidate in python3.11 python3; do
+        if command -v "$candidate" &> /dev/null; then PYTHON="$candidate"; break; fi
+    done
 fi
+if [ -z "$PYTHON" ]; then
+    print_warning "Python 3 not found. Install Python 3.11 or set PYTHON=/path/to/python3.11"
+    exit 1
+fi
+print_info "Using $($PYTHON --version)"
 
-# Build standalone backend with PyInstaller
-print_info "Building standalone backend executable (this may take a few minutes)..."
-pyinstaller backend.spec --clean --distpath standalone/runtime
+print_info "Cleaning previous builds..."
+rm -rf standalone build dist pyinstaller-work 2>/dev/null || true
+mkdir -p standalone
 
-# Calculate Python libraries size
-print_info "Preparing Python environment..."
-python3 -m venv standalone/python/venv
-source standalone/python/venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+# Build environment: kept outside the package; reused between builds.
+BUILD_ENV="standalone-build/venv"
+if [ ! -x "$BUILD_ENV/bin/python" ]; then
+    print_info "Creating build environment in $BUILD_ENV..."
+    "$PYTHON" -m venv "$BUILD_ENV"
+fi
+print_info "Installing Python dependencies and PyInstaller into the build environment..."
+"$BUILD_ENV/bin/python" -m pip install --quiet --upgrade pip
+"$BUILD_ENV/bin/python" -m pip install --quiet -r requirements.txt pyinstaller
 
-# Get actual sizes
-PYTHON_SIZE=$(du -sh standalone/python | cut -f1)
-BACKEND_SIZE=$(du -sh standalone/runtime | cut -f1)
-FRONTEND_SIZE=$(du -sh standalone/app/frontend | cut -f1)
+print_info "Building optimized frontend..."
+if [ ! -d node_modules ]; then
+    npm ci
+fi
+npm run build
 
-# Create launcher script
+print_info "Building the executable (this may take a few minutes)..."
+"$BUILD_ENV/bin/python" -m PyInstaller backend.spec --clean --noconfirm \
+    --workpath pyinstaller-work --distpath standalone/runtime
+
 print_info "Creating launcher script..."
 cat > standalone/launch.sh << 'EOFLAUNCH'
 #!/bin/bash
-# Excel Data Visualizer Standalone Launcher
-
+# Excel Data Visualizer launcher. Pass --shared to let other computers on
+# this network use the app (there is no login).
 cd "$(dirname "$0")"
 
-# Start backend
-./runtime/excel-visualizer-backend/excel-visualizer-backend &
-BACKEND_PID=$!
+./runtime/excel-visualizer-backend/excel-visualizer-backend "$@" &
+APP_PID=$!
+trap "kill $APP_PID 2>/dev/null; exit" INT TERM
 
-# Give backend time to start
-sleep 3
-
-# Serve frontend using Python's built-in server
-cd app/frontend
-python3 -m http.server 3000 &
-FRONTEND_PID=$!
+# Wait up to 30 seconds for the server to answer.
+for _ in $(seq 1 60); do
+    if (echo > /dev/tcp/127.0.0.1/5001) 2>/dev/null; then break; fi
+    if ! kill -0 $APP_PID 2>/dev/null; then echo "The app stopped while starting."; exit 1; fi
+    sleep 0.5
+done
 
 echo
 echo "=========================================="
-echo "  Excel Data Visualizer is running!"
+echo "  Excel Data Visualizer is running"
+echo "  Open http://localhost:5001"
+echo "  Press Ctrl+C to stop"
 echo "=========================================="
 echo
-echo "  Frontend: http://localhost:3000"
-echo "  Backend:  http://localhost:5001"
-echo
-echo "Press Ctrl+C to stop both servers"
-echo
 
-# Open browser (if available)
 if command -v xdg-open &> /dev/null; then
-    sleep 2
-    xdg-open http://localhost:3000 2>/dev/null &
+    xdg-open http://localhost:5001 2>/dev/null &
 elif command -v open &> /dev/null; then
-    sleep 2
-    open http://localhost:3000 2>/dev/null &
+    open http://localhost:5001 2>/dev/null &
 fi
 
-# Trap Ctrl+C and cleanup
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" INT TERM
-
-# Wait for processes
-wait
+wait $APP_PID
 EOFLAUNCH
-
 chmod +x standalone/launch.sh
 
-# Create README for standalone package
 cat > standalone/README.txt << 'EOFREADME'
 Excel Data Visualizer - Standalone Edition
 ==========================================
 
-This is a fully self-contained version of Excel Data Visualizer.
-NO installation required - all dependencies are bundled!
+Everything the app needs is in this folder. Nothing has to be installed.
 
-QUICK START
------------
-
-Linux/macOS:
+START
+-----
   ./launch.sh
 
-The application will start automatically and open in your browser at:
-  http://localhost:3000
+Your browser opens http://localhost:5001. Stop the app with Ctrl+C.
 
-WHAT'S INCLUDED
----------------
+SHARE WITH OTHER COMPUTERS (optional)
+-------------------------------------
+  ./launch.sh --shared
 
-- Python 3.11 runtime and all required libraries
-- React frontend (pre-built)
-- Flask backend (compiled executable)
-- All dependencies bundled
-
-SIZE BREAKDOWN
---------------
-
-Total Package: ~450-550 MB
-- Python runtime + libraries: ~250-300 MB
-- Backend executable: ~150-200 MB
-- Frontend build: ~50 MB
-- Application code: ~2 MB
-
-SYSTEM REQUIREMENTS
--------------------
-
-- Linux: Ubuntu 18.04+ / Debian 10+ / RHEL 8+ / Any modern distro
-- macOS: 10.14 (Mojave) or later
-- RAM: 512 MB minimum, 1 GB recommended
-- Disk: 600 MB free space
+Other computers on the same network can then open http://<this computer's
+name or address>:5001. There is no login: anyone on the network can see the
+loaded file. Use this only on a network you trust.
 
 TROUBLESHOOTING
 ---------------
-
-Port already in use:
-  Kill the process using port 3000 or 5001:
-
-  Linux: lsof -ti:3000 | xargs kill -9
-  macOS: lsof -ti:3000 | xargs kill -9
-
-Can't execute:
-  Make sure launch.sh is executable:
-  chmod +x launch.sh
-
-SUPPORT
--------
-
-For issues, visit: https://github.com/yourusername/excel-visualiser
-
+Port 5001 already in use: stop the other program using it
+  (find it with: lsof -i :5001).
+Permission denied: chmod +x launch.sh runtime/excel-visualizer-backend/excel-visualizer-backend
 EOFREADME
 
-# Calculate total size
+APP_SIZE=$(du -sh standalone/runtime | cut -f1)
 TOTAL_SIZE=$(du -sh standalone | cut -f1)
 
 print_success "Standalone build complete!"
 echo
-echo "=========================================="
-echo "Build Statistics (including Python):"
-echo "=========================================="
-echo "  Python runtime:       $PYTHON_SIZE"
-echo "  Backend executable:   $BACKEND_SIZE"
-echo "  Frontend build:       $FRONTEND_SIZE"
-echo "  TOTAL PACKAGE SIZE:   $TOTAL_SIZE"
-echo
-print_info "Standalone package location: ./standalone/"
-echo
-
-print_info "To distribute:"
-echo "  1. Package: tar -czf excel-visualizer-standalone-$PLATFORM.tar.gz standalone/"
-echo "  2. Users extract and run: ./launch.sh"
-echo "  3. No installation needed!"
+echo "  Application (Python, libraries, web page): $APP_SIZE"
+echo "  TOTAL PACKAGE SIZE:                        $TOTAL_SIZE"
 echo
 print_info "Creating distribution package..."
-tar -czf excel-visualizer-standalone-$PLATFORM.tar.gz standalone/
-
-ARCHIVE_SIZE=$(du -sh excel-visualizer-standalone-$PLATFORM.tar.gz | cut -f1)
-print_success "Distribution package created: excel-visualizer-standalone-$PLATFORM.tar.gz ($ARCHIVE_SIZE)"
-echo
+tar -czf "excel-visualizer-standalone-$PLATFORM.tar.gz" standalone/
+ARCHIVE_SIZE=$(du -sh "excel-visualizer-standalone-$PLATFORM.tar.gz" | cut -f1)
+print_success "Distribution package: excel-visualizer-standalone-$PLATFORM.tar.gz ($ARCHIVE_SIZE)"
+echo "  Users extract it and run ./launch.sh"

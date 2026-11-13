@@ -7,15 +7,13 @@ import {
   AccordionDetails,
   Button,
   Chip,
-  Badge,
-  IconButton,
+  TextField,
   Tooltip
 } from '@mui/material';
 import {
   ExpandMore,
   FilterList,
-  FilterListOff,
-  Clear
+  FilterListOff
 } from '@mui/icons-material';
 import axios from 'axios';
 import API_BASE_URL from '../config';
@@ -23,81 +21,115 @@ import CategoricalFilter from './filters/CategoricalFilter';
 import NumericFilter from './filters/NumericFilter';
 import TextFilter from './filters/TextFilter';
 import BooleanFilter from './filters/BooleanFilter';
+import DateFilter from './filters/DateFilter';
 
-const FilterManager = ({ data, columnInfo, onFiltersApplied, onError }) => {
-  const [activeFilters, setActiveFilters] = useState({});
-  const [filterStats, setFilterStats] = useState({
-    filtered_rows: 0,
-    total_rows: 0,
-    has_filters: false
-  });
-  const [expandedPanels, setExpandedPanels] = useState({});
+const FILTER_COMPONENTS = {
+  categorical: CategoricalFilter,
+  numeric: NumericFilter,
+  text: TextFilter,
+  boolean: BooleanFilter,
+  datetime: DateFilter,
+};
 
-  useEffect(() => {
-    loadFilterStatus();
-  }, [data]);
-
-  const loadFilterStatus = async () => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/filter-status`);
-      const status = response.data;
-      setFilterStats(status);
-      setActiveFilters(status.active_filters || {});
-    } catch (error) {
-      console.error('Error loading filter status:', error);
+// One-line, human-readable description of a filter for its chip.
+export const describeFilter = (column, filter) => {
+  switch (filter?.type) {
+    case 'categorical': {
+      const values = filter.values || [];
+      const shown = values.slice(0, 3).join(', ');
+      return `${column}: ${shown}${values.length > 3 ? ` +${values.length - 3} more` : ''}`;
     }
-  };
+    case 'numeric':
+      if (filter.min !== undefined && filter.max !== undefined) return `${column}: ${filter.min} – ${filter.max}`;
+      if (filter.min !== undefined) return `${column} ≥ ${filter.min}`;
+      return `${column} ≤ ${filter.max}`;
+    case 'text': {
+      const isRegex = filter.search_type === 'regex';
+      const verb = filter.negate
+        ? (isRegex ? 'does not match' : 'does not contain')
+        : (isRegex ? 'matches' : 'contains');
+      return `${column} ${verb} "${filter.value}"`;
+    }
+    case 'boolean':
+      return `${column} = ${filter.value ? 'True' : 'False'}`;
+    case 'datetime':
+      if (filter.start && filter.end) return `${column}: ${filter.start} → ${filter.end}`;
+      if (filter.start) return `${column} from ${filter.start}`;
+      return `${column} until ${filter.end}`;
+    default:
+      return `${column}: filtered`;
+  }
+};
+
+const sameFilters = (a, b) => JSON.stringify(a || {}) === JSON.stringify(b || {});
+
+const FilterManager = ({ data, columnInfo, onDatasetUpdate, onNotice, onError }) => {
+  const appliedFilters = data.active_filters || {};
+  // Filters being edited; they take effect on "Apply Filters".
+  const [draftFilters, setDraftFilters] = useState(appliedFilters);
+  const [expandedPanels, setExpandedPanels] = useState({});
+  // Bumping a column's key remounts its editor so local input state resets.
+  const [resetKeys, setResetKeys] = useState({});
+  const [columnSearch, setColumnSearch] = useState('');
+  const [isApplying, setIsApplying] = useState(false);
+
+  // The backend can change the applied filters (new file, sheet switch,
+  // column type change); follow it.
+  const appliedSignature = JSON.stringify(appliedFilters);
+  useEffect(() => {
+    setDraftFilters(JSON.parse(appliedSignature));
+  }, [appliedSignature]);
 
   const handleFilterChange = (column, filterConfig) => {
-    const newFilters = { ...activeFilters };
-    
-    if (filterConfig === null || filterConfig === undefined) {
-      // Remove filter
-      delete newFilters[column];
-    } else {
-      // Add/update filter
-      newFilters[column] = filterConfig;
-    }
-    
-    setActiveFilters(newFilters);
+    setDraftFilters((previous) => {
+      const next = { ...previous };
+      if (filterConfig === null || filterConfig === undefined) {
+        delete next[column];
+      } else {
+        next[column] = filterConfig;
+      }
+      return next;
+    });
+  };
+
+  const removeFilter = (column) => {
+    handleFilterChange(column, null);
+    setResetKeys((previous) => ({ ...previous, [column]: (previous[column] || 0) + 1 }));
   };
 
   const applyFilters = async () => {
+    setIsApplying(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/apply-filters`, {
-        filters: activeFilters
+        filters: draftFilters
       });
-      
-      if (response.data.success) {
-        setFilterStats({
-          filtered_rows: response.data.filtered_rows,
-          total_rows: response.data.total_rows,
-          has_filters: Object.keys(activeFilters).length > 0
-        });
-        onFiltersApplied && onFiltersApplied(response.data);
-      }
+      onDatasetUpdate(response.data);
+      const { filtered_rows: filteredRows, total_rows: totalRows } = response.data;
+      onNotice?.('success', `Filters applied: ${filteredRows.toLocaleString()} of ${totalRows.toLocaleString()} rows match`);
     } catch (error) {
-      onError('Failed to apply filters');
-      console.error('Error applying filters:', error);
+      onError(error.response?.data?.error || 'Failed to apply filters');
+    } finally {
+      setIsApplying(false);
     }
   };
 
   const clearAllFilters = async () => {
+    setIsApplying(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/clear-filters`);
-      
-      if (response.data.success) {
-        setActiveFilters({});
-        setFilterStats({
-          filtered_rows: response.data.total_rows,
-          total_rows: response.data.total_rows,
-          has_filters: false
+      setDraftFilters({});
+      setResetKeys((previous) => {
+        const next = { ...previous };
+        Object.keys(columnInfo).forEach((column) => {
+          next[column] = (next[column] || 0) + 1;
         });
-        onFiltersApplied && onFiltersApplied(response.data);
-      }
+        return next;
+      });
+      onDatasetUpdate(response.data);
     } catch (error) {
-      onError('Failed to clear filters');
-      console.error('Error clearing filters:', error);
+      onError(error.response?.data?.error || 'Failed to clear filters');
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -108,96 +140,38 @@ const FilterManager = ({ data, columnInfo, onFiltersApplied, onError }) => {
     }));
   };
 
-  const renderFilter = (column, colInfo) => {
-    const filterType = colInfo.type;
-    
-    switch (filterType) {
-      case 'categorical':
-        return (
-          <CategoricalFilter
-            column={column}
-            value={activeFilters[column]}
-            onChange={(value) => handleFilterChange(column, value)}
-            onError={onError}
-          />
-        );
-      
-      case 'numeric':
-        return (
-          <NumericFilter
-            column={column}
-            value={activeFilters[column]}
-            onChange={(value) => handleFilterChange(column, value)}
-            onError={onError}
-          />
-        );
-      
-      case 'text':
-        return (
-          <TextFilter
-            column={column}
-            value={activeFilters[column]}
-            onChange={(value) => handleFilterChange(column, value)}
-            onError={onError}
-          />
-        );
-      
-      case 'boolean':
-        return (
-          <BooleanFilter
-            column={column}
-            value={activeFilters[column]}
-            onChange={(value) => handleFilterChange(column, value)}
-            onError={onError}
-          />
-        );
-      
-      default:
-        return (
-          <Typography variant="body2" color="text.secondary">
-            Filtering not available for this column type
-          </Typography>
-        );
-    }
-  };
+  const filterableColumns = Object.entries(columnInfo)
+    .filter(([, info]) => FILTER_COMPONENTS[info.type])
+    .filter(([column]) => column.toLowerCase().includes(columnSearch.trim().toLowerCase()));
 
-  const getFilterableColumns = () => {
-    return Object.entries(columnInfo).filter(([col, info]) =>
-      ['categorical', 'numeric', 'text', 'boolean'].includes(info.type)
-    );
-  };
-
-  const filterableColumns = getFilterableColumns();
+  const draftEntries = Object.entries(draftFilters);
+  const isDirty = !sameFilters(draftFilters, appliedFilters);
+  const hasAnyFilter = data.has_filters || draftEntries.length > 0;
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <FilterList sx={{ mr: 1 }} />
           <Typography variant="h6">
             Data Filters
           </Typography>
-          {filterStats.has_filters && (
-            <Badge
-              badgeContent={Object.keys(activeFilters).length}
-              color="primary"
-              sx={{ ml: 1 }}
-            >
-              <Chip
-                size="small"
-                label={`${filterStats.filtered_rows}/${filterStats.total_rows} rows`}
-                color="info"
-                variant="outlined"
-              />
-            </Badge>
+          {data.has_filters && (
+            <Chip
+              size="small"
+              label={`${data.filtered_rows.toLocaleString()} / ${data.total_rows.toLocaleString()} rows`}
+              color="info"
+              variant="outlined"
+              sx={{ ml: 1.5 }}
+            />
           )}
         </Box>
-        
+
         <Box>
           <Button
             variant="contained"
             onClick={applyFilters}
-            disabled={Object.keys(activeFilters).length === 0}
+            disabled={!isDirty || isApplying}
             sx={{ mr: 1 }}
           >
             Apply Filters
@@ -205,7 +179,7 @@ const FilterManager = ({ data, columnInfo, onFiltersApplied, onError }) => {
           <Button
             variant="outlined"
             onClick={clearAllFilters}
-            disabled={!filterStats.has_filters}
+            disabled={!hasAnyFilter || isApplying}
             startIcon={<FilterListOff />}
           >
             Clear All
@@ -213,63 +187,98 @@ const FilterManager = ({ data, columnInfo, onFiltersApplied, onError }) => {
         </Box>
       </Box>
 
-      {filterStats.has_filters && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" color="text.secondary">
-            Showing {filterStats.filtered_rows.toLocaleString()} of {filterStats.total_rows.toLocaleString()} rows
+      {draftEntries.length > 0 && (
+        <Box sx={{ mb: 2 }} data-testid="filter-chips">
+          <Typography variant="body2" color={isDirty ? 'warning.main' : 'text.secondary'}>
+            {isDirty
+              ? 'You have unapplied changes. Press "Apply Filters" to update the data.'
+              : `Showing ${data.filtered_rows.toLocaleString()} of ${data.total_rows.toLocaleString()} rows`}
           </Typography>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
-            {Object.entries(activeFilters).map(([column, filter]) => (
+            {draftEntries.map(([column, filter]) => (
               <Chip
                 key={column}
                 size="small"
-                label={`${column}: filtered`}
-                onDelete={() => handleFilterChange(column, null)}
+                label={describeFilter(column, filter)}
+                onDelete={() => removeFilter(column)}
                 color="primary"
                 variant="outlined"
+                sx={{ maxWidth: 360 }}
               />
             ))}
           </Box>
         </Box>
       )}
 
+      {draftEntries.length === 0 && isDirty && (
+        <Typography variant="body2" color="warning.main" sx={{ mb: 2 }}>
+          All filters removed. Press "Apply Filters" to update the data.
+        </Typography>
+      )}
+
+      {Object.keys(columnInfo).length > 12 && (
+        <TextField
+          size="small"
+          placeholder="Search columns..."
+          value={columnSearch}
+          onChange={(event) => setColumnSearch(event.target.value)}
+          sx={{ mb: 2, minWidth: 260 }}
+        />
+      )}
+
       <Box>
-        {filterableColumns.map(([column, colInfo]) => (
-          <Accordion
-            key={column}
-            expanded={expandedPanels[column] || false}
-            onChange={handlePanelChange(column)}
-          >
-            <AccordionSummary expandIcon={<ExpandMore />}>
-              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                <Typography sx={{ flexGrow: 1 }}>
-                  {column}
-                </Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-                  <Chip
-                    size="small"
-                    label={colInfo.type}
-                    color="default"
-                    variant="outlined"
-                    sx={{ mr: 1 }}
-                  />
-                  {activeFilters[column] && (
-                    <Tooltip title="Filter active">
-                      <Chip
-                        size="small"
-                        label="●"
-                        color="primary"
-                      />
-                    </Tooltip>
-                  )}
+        {filterableColumns.map(([column, colInfo]) => {
+          const FilterComponent = FILTER_COMPONENTS[colInfo.type];
+          return (
+            <Accordion
+              key={column}
+              expanded={expandedPanels[column] || false}
+              onChange={handlePanelChange(column)}
+              // Mount the editor (and fetch its options) only when opened.
+              TransitionProps={{ unmountOnExit: true }}
+            >
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                  <Typography sx={{ flexGrow: 1 }}>
+                    {column}
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+                    <Chip
+                      size="small"
+                      label={colInfo.type}
+                      color="default"
+                      variant="outlined"
+                      sx={{ mr: 1 }}
+                    />
+                    {draftFilters[column] && (
+                      <Tooltip title="Filter set">
+                        <Chip
+                          size="small"
+                          label="●"
+                          color="primary"
+                        />
+                      </Tooltip>
+                    )}
+                  </Box>
                 </Box>
-              </Box>
-            </AccordionSummary>
-            <AccordionDetails>
-              {renderFilter(column, colInfo)}
-            </AccordionDetails>
-          </Accordion>
-        ))}
+              </AccordionSummary>
+              <AccordionDetails>
+                <FilterComponent
+                  key={`${column}:${colInfo.type}:${resetKeys[column] || 0}`}
+                  column={column}
+                  value={draftFilters[column]}
+                  onChange={(value) => handleFilterChange(column, value)}
+                  onError={onError}
+                />
+              </AccordionDetails>
+            </Accordion>
+          );
+        })}
+        {filterableColumns.length === 0 && (
+          <Typography variant="body2" color="text.secondary">
+            No filterable columns{columnSearch ? ' match the search' : ''}.
+          </Typography>
+        )}
       </Box>
     </Box>
   );

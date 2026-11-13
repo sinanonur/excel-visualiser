@@ -39,7 +39,7 @@ class TestLlmPlot(unittest.TestCase):
         # Check if the plot data contains the expected title
         import json
         plot_data = json.loads(data['plot'])
-        self.assertEqual(plot_data['layout']['title']['text'], 'Test Scatter Plot')
+        self.assertEqual(plot_data['layout']['title']['text'], 'Test Plot: col1 vs col2')
 
 if __name__ == '__main__':
     unittest.main()

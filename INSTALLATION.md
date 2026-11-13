@@ -16,7 +16,7 @@ This guide provides step-by-step installation instructions for Linux, macOS, and
 
 ### Minimum Requirements
 - **Operating System**: Linux (Ubuntu 18.04+, CentOS 7+, etc.), macOS 10.14+, or Windows 10+
-- **Python**: 3.11 or higher (required for scikit-learn 1.7+ and numpy 2.x)
+- **Python**: 3.11 (the pinned pandas and numpy versions have no wheels for newer Python)
 - **Node.js**: 14.0 or higher
 - **RAM**: 4GB minimum, 8GB recommended
 - **Storage**: 1GB free space

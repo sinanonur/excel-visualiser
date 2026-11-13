@@ -67,18 +67,24 @@ RUN apt-get update && \
 # Make sure scripts use the user Python packages
 ENV PATH=/root/.local/bin:$PATH
 
+# The backend listens on localhost only by default; inside a container it
+# must bind all interfaces so the published port is reachable.
+ENV FLASK_HOST=0.0.0.0
+
 # Expose ports
 EXPOSE 5001 3000
 
-# Create startup script
+# Create startup script. The backend runs app.py directly: dependencies are
+# already installed, and start_backend.py would try to pip-install a
+# requirements.txt that this image does not contain.
 RUN echo '#!/bin/sh\n\
-python start_backend.py &\n\
+python backend/app.py &\n\
 cd frontend/build && serve -s . -l 3000\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:5001/ || exit 1
+    CMD curl -f http://localhost:5001/health || exit 1
 
 # Start both services
 CMD ["/app/start.sh"]

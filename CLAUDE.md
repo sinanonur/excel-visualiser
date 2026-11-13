@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Excel Data Science Visualizer is a full-stack web application for exploring and visualizing Excel datasets. It features automatic data type detection, smart list/set column expansion, advanced filtering, and interactive plotting capabilities.
+Excel Data Science Visualizer is a full-stack web application for exploring and visualizing Excel and CSV datasets. It features automatic data type detection, a data profile with quality alerts, smart list/set column expansion, advanced filtering, export, and interactive plotting capabilities.
 
 ## Architecture
 
@@ -14,15 +14,19 @@ Excel Data Science Visualizer is a full-stack web application for exploring and 
 - **Data Processing**: Pandas-based pipeline with Plotly for interactive charts
 
 ### Key Components
-- `backend/app.py`: Flask server with DataProcessor class handling Excel parsing, filtering, and plotting
-- `src/components/`: React components for file upload, data preview, filtering, and visualization
-- `src/App.js`: Main application with tab-based navigation (Data Preview, Column Management, Filters, Visualizations)
+- `backend/app.py`: Flask routes only (plus the AI-plot execution helper)
+- `backend/processing.py`: `DataProcessor` - loading, type detection/conversion, list expansion, filtering, preview paging, profiling, export
+- `backend/plots.py`: Plotly figure builders; raise `PlotError` with a user-facing reason
+- `backend/llm/`: LLM back-ends for the AI plot (`GeminiLlm`, offline `TestLlm`)
+- `src/components/`: React components for file upload, data preview, profile, filtering, and visualization
+- `src/App.js`: Main application; owns the dataset state mirrored from the backend and the tab navigation (Data Preview, Profile, Column Management, Filters, Visualizations)
 
 ### Data Flow
-1. Excel files uploaded via React dropzone component
+1. Excel (.xlsx/.xls/.xlsm) or CSV/TSV files uploaded via React dropzone component
 2. Backend processes with pandas, detects column types (numeric, categorical, text, datetime, boolean, lists/sets)
-3. Frontend displays data preview with pagination and type-aware filtering options
+3. Frontend displays data preview (paging, sorting, search), a data profile, and type-aware filtering options
 4. Plotly generates interactive visualizations that respect active filters
+5. The filtered data can be exported as CSV or Excel
 
 ## Installation & Deployment
 
@@ -113,44 +117,31 @@ Create optimized production package (requires Python/Node.js on target system):
 
 ### Standalone Build (RECOMMENDED FOR DISTRIBUTION)
 
-**Build fully self-contained packages with Python embedded - NO installation required!**
+**Builds one folder that users unpack and run. Nothing has to be installed.**
 
 ```bash
-# Linux/macOS
+# Linux/macOS (build machine needs Python 3.11 and Node.js)
 ./build-standalone.sh
 
-# Windows
+# Windows (build machine needs Node.js; Python is downloaded for the build)
 .\build-standalone.ps1
 ```
 
-**What's included in standalone builds:**
-- Python 3.11 embedded runtime (~30-50 MB)
-- All Python libraries (pandas, flask, plotly, numpy, etc.) (~250-300 MB)
-- Compiled backend executable (~150-200 MB)
-- Optimized frontend build (~50 MB)
-- Platform-specific launcher scripts
+**How it works:**
+- PyInstaller (`backend.spec`) bundles Python, the libraries, the backend and the built React app into `standalone/runtime/excel-visualizer-backend/`
+- The executable serves the web page and the API on one port, `http://localhost:5001`
+- `launch.sh` / `launch.bat` / `launch.ps1` start it and open the browser; add `--shared` (`-Shared` for `launch.ps1`) to let other computers on the network use it
+- The build environment (`standalone-build/`) and PyInstaller work folder (`pyinstaller-work/`) stay outside the package
+- `python scripts/smoke_standalone.py <path to executable>` checks a build; CI runs it on Linux and Windows
 
-**Benefits:**
-- Users need ZERO dependencies installed
-- No Python, Node.js, or pip required
-- Fully portable (works from USB drives)
-- One-click launch experience
-- Perfect for distribution to non-technical users
+**Size, measured 13.11.2026:** Linux 179 MB unpacked, 75 MB as `.tar.gz`; Windows (CI build) 156 MB unpacked, 68 MB as `.zip`. CI prints the current size in its Package size step.
 
-**Size comparison (with dependencies included):**
+**Size comparison:**
 - Repository (source code only): ~2 MB
 - Production build (requires Python/Node): 50-100 MB
-- **Standalone build (Python + all libs bundled): 450-550 MB** ⭐
+- **Standalone build: 156-179 MB unpacked, 68-75 MB compressed (Windows-Linux)** ⭐
 - Docker image: 500-700 MB
 - Full dev install (local dependencies): 400-600 MB
-
-**Standalone package breakdown:**
-- Python runtime: ~30-50 MB
-- Python libraries (pandas, numpy, plotly, etc.): ~250-300 MB
-- Backend executable (PyInstaller): ~150-200 MB
-- Frontend (React build): ~50 MB
-- Application code: ~2 MB
-- **Compressed archive: ~200-300 MB**
 
 ### Development Commands
 
@@ -185,6 +176,16 @@ npm run build
 npm test
 ```
 
+The frontend finds the backend on its own (`src/config.js`): when the backend serves the page (standalone package) it uses the page's address; otherwise `REACT_APP_API_URL` if set at build/start time; otherwise port 5001 on the host the page was loaded from (`localhost` locally, the serving computer in shared mode).
+
+**Backend environment variables:**
+- `FLASK_HOST` (default `127.0.0.1`; Docker sets `0.0.0.0`), `FLASK_PORT` (default `5001`)
+- `EXCEL_VISUALIZER_SHARED=1` or `--shared` (on `backend/app.py`, `start_backend.py` and the standalone launchers): listen on the network so other computers can use the app. No login; anyone on the network can read the loaded file
+- `EXCEL_VISUALIZER_FRONTEND_DIR`: a built frontend (`build/`) for the backend to serve on its own port. The standalone package sets this up automatically
+- `FLASK_DEBUG=1` enables the reloader/debugger (off by default - without it, restart the backend after editing Python files)
+- `CORS_ORIGINS`: comma-separated exact origins, or `*`. Default: pages from this computer, and pages served from the same host name the browser used to reach the API (needed by shared mode)
+- `MAX_UPLOAD_MB` (default `200`), `GEMINI_API_KEY` (AI plots), `EXCEL_VISUALIZER_CACHE_DIR` (type-override cache)
+
 **Unified Development:**
 ```bash
 # Start both servers (use platform-specific script)
@@ -195,28 +196,54 @@ npm test
 ## Key APIs
 
 ### Backend Endpoints (Flask)
-- `POST /upload`: Process Excel files and detect column types
+- `GET /health`: Liveness check (used by the Docker health check)
+- `GET /session`: Current dataset state, so a reloaded page resumes the loaded file
+- `POST /upload`: Load .xlsx/.xls/.xlsm/.csv/.tsv and detect column types (optional form field `sheet`)
+- `POST /select-sheet`: Switch to another sheet of the uploaded workbook
 - `GET /column-info`: Retrieve current column metadata
-- `POST /update-column-type`: Manually override column data types
-- `POST /expand-column`: Expand list/set columns into separate columns
-- `POST /apply-filters`: Apply filtering criteria to dataset
-- `POST /plot`: Generate interactive Plotly visualizations
-- `GET /data-preview`: Paginated data preview with filter support
+- `POST /update-column-type`: Override a column type **and convert its values** (reports values that could not be converted)
+- `POST /expand-column`: Expand list/set columns; `mode` is `positional` (`col_item_1..n`) or `onehot` (boolean `col [item]` columns)
+- `GET /filter-options?column=`: Values/ranges needed to build a filter (`/filter-options/<column>` also works)
+- `POST /apply-filters`, `POST /clear-filters`, `GET /filter-status`: Manage filters
+- `GET /data-preview`: Paginated preview; supports `sort_by`, `sort_dir`, `search`
+- `GET /profile`: Per-column statistics, histograms, correlations and data-quality alerts for the filtered data
+- `GET /export?format=csv|xlsx&scope=filtered|all`: Download the data
+- `POST /plot`: Generate interactive Plotly visualizations (errors explain what to change)
+- `POST /generate-llm-plot`: Plot from a natural-language prompt
+
+Most state-changing endpoints return the full dataset state (`columns`, `column_info`, `shape`, filter status), which the frontend merges into its own state.
 
 ### Data Processing Features
-- **Smart Type Detection**: Automatically identifies numeric, categorical, text, datetime, boolean, and list/set columns
-- **List/Set Expansion**: Parses `[item1, item2]` or `{item1, item2}` formatted columns into separate boolean columns
-- **Advanced Filtering**: Type-aware filters (categorical selection, numeric ranges, text patterns, boolean values)
-- **Filter-Aware Plotting**: All visualizations respect currently active filters
+- **Smart Type Detection**: numeric, categorical, text, datetime (including text dates in CSVs, month-first or day-first), boolean, and list/set columns
+- **Type Overrides Convert Data**: conversions always start from the raw values, so they are reversible; overrides are remembered per file for 2 days
+- **List/Set Expansion**: Parses `[item1, item2]` or `{item1, item2}` cells (quoted or bare words) into positional columns or one boolean column per item
+- **Advanced Filtering**: categorical selection, numeric ranges, text contains/regex (optionally negated), boolean values, date ranges
+- **Data Profile**: missing values, duplicates, distribution statistics, top values, correlations, and alerts (mixed types, constant columns, outliers, skew, high cardinality, high correlation). Thresholds are constants at the top of `backend/processing.py`
+- **Plot Types**: histogram, box, violin, bar (counts, split, or aggregated numeric), pie, scatter (colour-by, trendline), line (date grouping), correlation heatmap, AI custom
+- **Filter-Aware**: previews, profile, plots and exports all use the filtered data
+
+### Dataset State Model
+`DataProcessor` keeps three frames: `raw_data` (as loaded, plus expanded columns), `original_data` (typed, unfiltered) and `data` (typed, filtered). Filters never rebuild from the raw file, so expanded columns and type conversions survive filtering.
 
 ## Testing
 
-Test files are provided:
-- `test_data.xlsx`: Sample Excel file for testing functionality
-- `test_upload.py`: Backend upload functionality tests
-- `test_filtering.py`: Data filtering tests
+**Backend unit tests (no server needed):**
+```bash
+pip install -r requirements-dev.txt
+python -m pytest            # runs tests/unit against the Flask test client
+```
 
-Run Python tests manually as there's no automated test runner configured.
+`tests/unit/conftest.py` builds an in-memory workbook covering every column type; add cases there rather than new fixture files.
+
+**Legacy smoke tests (need a running backend on port 5001):** `tests/test_upload.py`, `tests/test_filtering.py`, using `test_data.xlsx`.
+
+There are no frontend unit tests. Before committing frontend changes run `CI=true npm run build`, which fails on any ESLint warning.
+
+**CI** (`.github/workflows/ci.yml`, GitHub Actions) runs on pull requests and pushes to `main`:
+- backend tests on Linux and Windows;
+- the frontend build with lint warnings as errors;
+- the standalone package built on Linux and Windows, then smoke-tested with `scripts/smoke_standalone.py` (starts the executable, loads `test_data.xlsx`, draws plots, exports);
+- the Docker image built and started, then checked over HTTP.
 
 ## Architecture Notes
 
@@ -225,6 +252,8 @@ The application uses a stateful backend approach where the DataProcessor class m
 The frontend uses React state management for UI interactions and communicates with the backend via Axios HTTP requests. Material-UI provides the component library for consistent styling.
 
 All visualizations are generated server-side using Plotly and returned as JSON for rendering in the React frontend using react-plotly.js.
+
+**Security posture:** the app is a single-user local tool. The backend binds to localhost and only lets pages from this computer (or, in shared mode, from the same host) read its responses. It has no authentication, so shared mode is for trusted networks only. AI plots execute model-generated Python with a restricted import list; that limits accidents but is not a sandbox, so do not expose the backend to untrusted networks.
 
 ## Windows MSI Package
 
@@ -288,7 +317,7 @@ The MSI installer provides a professional Windows installation experience with t
 ### MSI Structure
 
 **Files:**
-- `installer/Product.wxs`: WiX configuration with online/offline conditional compilation
+- `installer/Product.wxs`: WiX configuration with online/offline conditional compilation. It lists every source file explicitly: **when you add a backend module or a React component, add a `<File>` entry here** or the MSI will ship without it
 - `installer/License.rtf`: License agreement for installer
 - `installer/README.md`: Detailed MSI documentation
 - `build-msi.ps1`: PowerShell script to build MSI (supports `-Offline` flag)
@@ -390,8 +419,7 @@ The repository is designed to be compact and efficient:
    - Features: One-click install, no technical knowledge needed
 
 2. **Standalone Build (BEST FOR CROSS-PLATFORM)** ⭐
-   - Uncompressed: 450-550 MB
-   - Compressed: 200-300 MB
+   - Unpacked: 156 MB (Windows) / 179 MB (Linux); compressed: 68 / 75 MB (measured 13.11.2026)
    - Includes: Python runtime + all libraries + compiled executable
    - Requirements: NONE - fully self-contained!
    - Best for: End-user distribution, non-technical users, portable apps
@@ -500,7 +528,11 @@ The Docker image can be deployed to:
 ```
 excel-visualiser/
 ├── backend/                  # Flask application
-│   └── app.py               # Main backend server
+│   ├── app.py               # Routes
+│   ├── processing.py        # DataProcessor (load, types, filters, profile, export)
+│   ├── plots.py             # Plotly figure builders
+│   └── llm/                 # AI plot back-ends
+├── tests/unit/              # pytest suite (in-process)
 ├── src/                     # React frontend source
 │   ├── components/          # UI components
 │   │   └── filters/        # Filter components
@@ -517,7 +549,9 @@ excel-visualiser/
 ├── docker-compose.yml       # Container orchestration
 ├── .dockerignore            # Docker build exclusions
 │
-├── backend.spec             # PyInstaller configuration
+├── backend.spec             # PyInstaller configuration (bundles backend + built web page)
+├── scripts/smoke_standalone.py  # Smoke test for a built standalone package
+├── .github/workflows/ci.yml # CI: tests, frontend build, standalone (Linux+Windows), Docker
 ├── build-standalone.sh      # Standalone build (Linux/macOS)
 ├── build-standalone.ps1     # Standalone build (Windows)
 ├── build-production.sh      # Production build script
@@ -536,6 +570,8 @@ excel-visualiser/
 ├── install-windows.ps1      # Full Windows installer
 │
 ├── requirements.txt         # Python dependencies
+├── requirements-dev.txt     # + pytest
+├── pytest.ini               # Test configuration
 ├── package.json             # Node.js dependencies
 ├── INSTALLATION_GUIDE.md    # Detailed installation docs
 ├── CLAUDE.md               # This file (project instructions)
@@ -544,11 +580,9 @@ excel-visualiser/
 
 **Build Outputs (not in Git):**
 ```
-standalone/                  # Standalone build (450-550 MB)
-├── python/                 # Embedded Python 3.11 runtime
-├── runtime/                # Compiled backend executable
-├── app/                    # Frontend and source
-├── launch.sh / launch.bat  # One-click launcher
+standalone/                  # Standalone build (179 MB on Linux)
+├── runtime/                # Executable: Python, libraries, backend and web page
+├── launch.sh / launch.bat / launch.ps1  # Start it and open the browser
 └── README.txt             # User instructions
 
 production/                  # Production build (50-100 MB)

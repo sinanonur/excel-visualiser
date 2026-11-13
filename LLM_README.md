@@ -49,3 +49,11 @@ Run the basic test to verify functionality:
 ```bash
 python test_llm_basic.py
 ```
+
+The backend unit tests (`python -m pytest`) also cover the AI plot endpoint with the test model.
+
+## Security Note
+
+The AI plot runs Python code written by the model on your machine. The code may only import a fixed list of modules (plotly, pandas, numpy and a few standard-library helpers), has no `open`/`eval`/`exec`, and receives a copy of the data, so it cannot change the loaded dataset. This reduces accidents; it is **not** a sandbox. Use it only with a model and prompts you trust, and do not expose the backend to other machines.
+
+Gemini needs the `GEMINI_API_KEY` environment variable set before the backend starts.

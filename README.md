@@ -5,37 +5,56 @@ A comprehensive web-based tool for exploring and visualizing Excel datasets with
 ## Features
 
 ### 🔍 **Data Exploration**
-- Upload Excel files (.xlsx, .xls) through drag-and-drop interface
-- Automatic data type detection (numeric, categorical, text, datetime, boolean)
-- Data preview with pagination
-- Column statistics and information
+- Upload Excel (.xlsx, .xls, .xlsm) or CSV/TSV files through a drag-and-drop interface
+- Pick the sheet to analyse in multi-sheet workbooks
+- Automatic data type detection (numeric, categorical, text, datetime, boolean), including dates stored as text
+- Data preview with pagination, column sorting and search across all columns
+- Reloading the page resumes the loaded dataset
+
+### 🩺 **Data Profile**
+- Per-column statistics, mini histograms and most frequent values
+- Missing-value and duplicate-row counts
+- Data-quality alerts: mixed types (e.g. `26,6,` in a numeric column), constant or empty columns, outliers, skew, high cardinality, highly correlated columns
+- Strongest correlations between numeric columns
 
 ### 📋 **Smart List/Set Detection**
 - Automatically detects columns containing lists `[item1, item2, ...]` or sets `{item1, item2, ...}`
-- Expand list/set columns into separate columns for detailed analysis
-- Supports complex nested data structures
+- Expand them into one true/false column per item (for filtering and counting) or one column per position
 
 ### 🔍 **Advanced Data Filtering**
 - **Categorical Filters**: Select specific categories to include
 - **Numeric Filters**: Set min/max thresholds with interactive sliders
-- **Text Filters**: Filter by text content or regular expressions
+- **Text Filters**: Contains or regular expression, optionally excluding matches
 - **Boolean Filters**: Filter by true/false values
-- **Real-time Filter Status**: See filtered vs. total row counts
-- **Multiple Filters**: Apply multiple filters simultaneously
+- **Date Filters**: From/to date range
+- **Multiple Filters**: Combine filters; each is summarised as a removable chip
+- **Export**: Download the filtered (or full) data as CSV or Excel
 
 ### 📊 **Interactive Visualizations**
-- **Violin Plots**: Distribution shape for numeric data
-- **Histograms**: Distribution of numeric data
-- **Box Plots**: Statistical summaries (single or grouped by category)
-- **Bar Charts**: Categorical data (single or stacked/grouped)
-- **Scatter Plots**: Relationships between numeric variables
+- **Histograms, Box Plots, Violin Plots**: Distributions, optionally split by a category
+- **Bar Charts**: Counts per category, split by a second category (grouped/stacked), or a numeric column aggregated per category (mean, sum, median, min, max, count)
+- **Pie Charts**: Category shares with small slices grouped as "Other"
+- **Scatter Plots**: Colour by category, optional linear trendline with R²
+- **Line Charts**: Numeric columns over time, grouped by day/week/month/quarter/year
+- **Correlation Heatmap**: Pearson or Spearman
+- **Custom Graph (AI)**: Describe a plot in plain language (see [LLM_README.md](LLM_README.md))
 - **Filter-Aware Plotting**: All visualizations respect active filters
 
 ### 🛠 **Column Management**
-- Manual data type override
+- Manual data type override that converts the values and reports any that could not be converted
 - Column expansion for list/set data
 - Real-time column statistics
-- Type-aware visualization suggestions
+
+## Using the App From Other Computers
+
+By default the app only answers on the computer it runs on. To let others on the same network use it, start it in shared mode:
+
+| How you start it | Shared mode |
+|---|---|
+| Standalone package | `./launch.sh --shared` or `launch.bat --shared`, then open `http://<computer-name>:5001` |
+| From source | `python start_backend.py --shared` (or set `EXCEL_VISUALIZER_SHARED=1` before any launcher), then open `http://<computer-name>:3000` |
+
+There is no login: anyone who can reach the computer can see the loaded file. Use shared mode only on a network you trust. On Windows, allow the firewall prompt for private networks only.
 
 ## 🚀 Quick Installation
 
