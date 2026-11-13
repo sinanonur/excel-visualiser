@@ -45,6 +45,17 @@ A comprehensive web-based tool for exploring and visualizing Excel datasets with
 - Column expansion for list/set data
 - Real-time column statistics
 
+## Using the App From Other Computers
+
+By default the app only answers on the computer it runs on. To let others on the same network use it, start it in shared mode:
+
+| How you start it | Shared mode |
+|---|---|
+| Standalone package | `./launch.sh --shared` or `launch.bat --shared`, then open `http://<computer-name>:5001` |
+| From source | `python start_backend.py --shared` (or set `EXCEL_VISUALIZER_SHARED=1` before any launcher), then open `http://<computer-name>:3000` |
+
+There is no login: anyone who can reach the computer can see the loaded file. Use shared mode only on a network you trust. On Windows, allow the firewall prompt for private networks only.
+
 ## 🚀 Quick Installation
 
 Choose your operating system:

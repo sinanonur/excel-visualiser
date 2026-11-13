@@ -117,44 +117,31 @@ Create optimized production package (requires Python/Node.js on target system):
 
 ### Standalone Build (RECOMMENDED FOR DISTRIBUTION)
 
-**Build fully self-contained packages with Python embedded - NO installation required!**
+**Builds one folder that users unpack and run. Nothing has to be installed.**
 
 ```bash
-# Linux/macOS
+# Linux/macOS (build machine needs Python 3.11 and Node.js)
 ./build-standalone.sh
 
-# Windows
+# Windows (build machine needs Node.js; Python is downloaded for the build)
 .\build-standalone.ps1
 ```
 
-**What's included in standalone builds:**
-- Python 3.11 embedded runtime (~30-50 MB)
-- All Python libraries (pandas, flask, plotly, numpy, etc.) (~250-300 MB)
-- Compiled backend executable (~150-200 MB)
-- Optimized frontend build (~50 MB)
-- Platform-specific launcher scripts
+**How it works:**
+- PyInstaller (`backend.spec`) bundles Python, the libraries, the backend and the built React app into `standalone/runtime/excel-visualizer-backend/`
+- The executable serves the web page and the API on one port, `http://localhost:5001`
+- `launch.sh` / `launch.bat` / `launch.ps1` start it and open the browser; add `--shared` (`-Shared` for `launch.ps1`) to let other computers on the network use it
+- The build environment (`standalone-build/`) and PyInstaller work folder (`pyinstaller-work/`) stay outside the package
+- `python scripts/smoke_standalone.py <path to executable>` checks a build; CI runs it on Linux and Windows
 
-**Benefits:**
-- Users need ZERO dependencies installed
-- No Python, Node.js, or pip required
-- Fully portable (works from USB drives)
-- One-click launch experience
-- Perfect for distribution to non-technical users
+**Size, Linux build measured 13.11.2026:** 179 MB unpacked, 75 MB as `.tar.gz`. The Windows size is reported in the CI log (Package size step).
 
-**Size comparison (with dependencies included):**
+**Size comparison:**
 - Repository (source code only): ~2 MB
 - Production build (requires Python/Node): 50-100 MB
-- **Standalone build (Python + all libs bundled): 450-550 MB** ⭐
+- **Standalone build: 179 MB unpacked, 75 MB compressed (Linux)** ⭐
 - Docker image: 500-700 MB
 - Full dev install (local dependencies): 400-600 MB
-
-**Standalone package breakdown:**
-- Python runtime: ~30-50 MB
-- Python libraries (pandas, numpy, plotly, etc.): ~250-300 MB
-- Backend executable (PyInstaller): ~150-200 MB
-- Frontend (React build): ~50 MB
-- Application code: ~2 MB
-- **Compressed archive: ~200-300 MB**
 
 ### Development Commands
 
@@ -189,12 +176,14 @@ npm run build
 npm test
 ```
 
-The frontend reads the backend URL from `REACT_APP_API_URL` (default `http://localhost:5001`).
+The frontend finds the backend on its own (`src/config.js`): when the backend serves the page (standalone package) it uses the page's address; otherwise `REACT_APP_API_URL` if set at build/start time; otherwise port 5001 on the host the page was loaded from (`localhost` locally, the serving computer in shared mode).
 
 **Backend environment variables:**
 - `FLASK_HOST` (default `127.0.0.1`; Docker sets `0.0.0.0`), `FLASK_PORT` (default `5001`)
+- `EXCEL_VISUALIZER_SHARED=1` or `--shared` (on `backend/app.py`, `start_backend.py` and the standalone launchers): listen on the network so other computers can use the app. No login; anyone on the network can read the loaded file
+- `EXCEL_VISUALIZER_FRONTEND_DIR`: a built frontend (`build/`) for the backend to serve on its own port. The standalone package sets this up automatically
 - `FLASK_DEBUG=1` enables the reloader/debugger (off by default - without it, restart the backend after editing Python files)
-- `CORS_ORIGINS`: comma-separated allowed origins, or `*`. Default: localhost origins only
+- `CORS_ORIGINS`: comma-separated exact origins, or `*`. Default: pages from this computer, and pages served from the same host name the browser used to reach the API (needed by shared mode)
 - `MAX_UPLOAD_MB` (default `200`), `GEMINI_API_KEY` (AI plots), `EXCEL_VISUALIZER_CACHE_DIR` (type-override cache)
 
 **Unified Development:**
@@ -250,6 +239,12 @@ python -m pytest            # runs tests/unit against the Flask test client
 
 There are no frontend unit tests. Before committing frontend changes run `CI=true npm run build`, which fails on any ESLint warning.
 
+**CI** (`.github/workflows/ci.yml`, GitHub Actions) runs on pull requests and pushes to `main`:
+- backend tests on Linux and Windows;
+- the frontend build with lint warnings as errors;
+- the standalone package built on Linux and Windows, then smoke-tested with `scripts/smoke_standalone.py` (starts the executable, loads `test_data.xlsx`, draws plots, exports);
+- the Docker image built and started, then checked over HTTP.
+
 ## Architecture Notes
 
 The application uses a stateful backend approach where the DataProcessor class maintains the current dataset state, applied filters, and column metadata in memory. This allows for real-time filtering and visualization updates without re-uploading files.
@@ -258,7 +253,7 @@ The frontend uses React state management for UI interactions and communicates wi
 
 All visualizations are generated server-side using Plotly and returned as JSON for rendering in the React frontend using react-plotly.js.
 
-**Security posture:** the app is a single-user local tool. The backend binds to localhost, only accepts cross-origin requests from localhost pages, and has no authentication. AI plots execute model-generated Python with a restricted import list; that limits accidents but is not a sandbox, so do not expose the backend to untrusted networks.
+**Security posture:** the app is a single-user local tool. The backend binds to localhost and only lets pages from this computer (or, in shared mode, from the same host) read its responses. It has no authentication, so shared mode is for trusted networks only. AI plots execute model-generated Python with a restricted import list; that limits accidents but is not a sandbox, so do not expose the backend to untrusted networks.
 
 ## Windows MSI Package
 
@@ -424,8 +419,7 @@ The repository is designed to be compact and efficient:
    - Features: One-click install, no technical knowledge needed
 
 2. **Standalone Build (BEST FOR CROSS-PLATFORM)** ⭐
-   - Uncompressed: 450-550 MB
-   - Compressed: 200-300 MB
+   - Unpacked: 179 MB, compressed: 75 MB (Linux, measured 13.11.2026)
    - Includes: Python runtime + all libraries + compiled executable
    - Requirements: NONE - fully self-contained!
    - Best for: End-user distribution, non-technical users, portable apps
@@ -555,7 +549,9 @@ excel-visualiser/
 ├── docker-compose.yml       # Container orchestration
 ├── .dockerignore            # Docker build exclusions
 │
-├── backend.spec             # PyInstaller configuration
+├── backend.spec             # PyInstaller configuration (bundles backend + built web page)
+├── scripts/smoke_standalone.py  # Smoke test for a built standalone package
+├── .github/workflows/ci.yml # CI: tests, frontend build, standalone (Linux+Windows), Docker
 ├── build-standalone.sh      # Standalone build (Linux/macOS)
 ├── build-standalone.ps1     # Standalone build (Windows)
 ├── build-production.sh      # Production build script
@@ -584,11 +580,9 @@ excel-visualiser/
 
 **Build Outputs (not in Git):**
 ```
-standalone/                  # Standalone build (450-550 MB)
-├── python/                 # Embedded Python 3.11 runtime
-├── runtime/                # Compiled backend executable
-├── app/                    # Frontend and source
-├── launch.sh / launch.bat  # One-click launcher
+standalone/                  # Standalone build (179 MB on Linux)
+├── runtime/                # Executable: Python, libraries, backend and web page
+├── launch.sh / launch.bat / launch.ps1  # Start it and open the browser
 └── README.txt             # User instructions
 
 production/                  # Production build (50-100 MB)
