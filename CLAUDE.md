@@ -134,12 +134,12 @@ Create optimized production package (requires Python/Node.js on target system):
 - The build environment (`standalone-build/`) and PyInstaller work folder (`pyinstaller-work/`) stay outside the package
 - `python scripts/smoke_standalone.py <path to executable>` checks a build; CI runs it on Linux and Windows
 
-**Size, Linux build measured 13.11.2026:** 179 MB unpacked, 75 MB as `.tar.gz`. The Windows size is reported in the CI log (Package size step).
+**Size, measured 13.11.2026:** Linux 179 MB unpacked, 75 MB as `.tar.gz`; Windows (CI build) 156 MB unpacked, 68 MB as `.zip`. CI prints the current size in its Package size step.
 
 **Size comparison:**
 - Repository (source code only): ~2 MB
 - Production build (requires Python/Node): 50-100 MB
-- **Standalone build: 179 MB unpacked, 75 MB compressed (Linux)** ⭐
+- **Standalone build: 156-179 MB unpacked, 68-75 MB compressed (Windows-Linux)** ⭐
 - Docker image: 500-700 MB
 - Full dev install (local dependencies): 400-600 MB
 
@@ -419,7 +419,7 @@ The repository is designed to be compact and efficient:
    - Features: One-click install, no technical knowledge needed
 
 2. **Standalone Build (BEST FOR CROSS-PLATFORM)** ⭐
-   - Unpacked: 179 MB, compressed: 75 MB (Linux, measured 13.11.2026)
+   - Unpacked: 156 MB (Windows) / 179 MB (Linux); compressed: 68 / 75 MB (measured 13.11.2026)
    - Includes: Python runtime + all libraries + compiled executable
    - Requirements: NONE - fully self-contained!
    - Best for: End-user distribution, non-technical users, portable apps
