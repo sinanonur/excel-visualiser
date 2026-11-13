@@ -37,15 +37,6 @@ cp start_backend.py production/
 cp requirements.txt production/
 cp README.md production/
 
-# Create optimized requirements.txt (production only)
-cat > production/requirements.txt << EOF
-flask==3.1.2
-flask-cors==6.0.1
-pandas==2.3.2
-openpyxl==3.1.5
-plotly==6.3.0
-numpy==2.3.2
-EOF
 
 # Create production run script
 cat > production/run-production.sh << 'EOFSCRIPT'

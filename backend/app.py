@@ -5,15 +5,19 @@ dataset in memory. A lock serialises requests because the development server
 is threaded and several endpoints mutate that shared state.
 """
 
+import argparse
 import builtins
 import functools
 import hashlib
 import json
 import os
+import re
+import socket
 import sys
 import threading
 import traceback
 from io import BytesIO
+from urllib.parse import urlsplit
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -22,8 +26,7 @@ import pandas as pd
 import plotly
 import plotly.express as px
 import plotly.graph_objs as go
-from flask import Flask, jsonify, request, send_file
-from flask_cors import CORS
+from flask import Flask, Response, abort, jsonify, request, send_file, send_from_directory
 
 from llm import GeminiLlm, TestLlm
 from plots import PlotError, figure_to_json
@@ -35,28 +38,69 @@ from processing import (  # noqa: F401  (re-exported for existing importers)
     to_jsonable,
 )
 
-app = Flask(__name__)
+# No Flask static folder: a built frontend, when configured, is served by the
+# catch-all route at the bottom of this file (its assets live under /static/).
+app = Flask(__name__, static_folder=None)
 app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_MB', '200')) * 1024 * 1024
 # Keep keys in insertion order so column_info lists columns as they appear in the file.
 app.json.sort_keys = False
 
 
-def _cors_origins():
-    """Origins allowed to read API responses.
+_LOOPBACK_HOSTS = {'localhost', '127.0.0.1', '::1'}
+# scheme://host[:port] and nothing else, as browsers send it.
+_ORIGIN_PATTERN = re.compile(r'^https?://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d{1,5})?$')
 
-    The dataset is private to the machine, so by default only pages served
-    from localhost may call the API. Set CORS_ORIGINS (comma separated, or
-    ``*``) when the frontend is served from another host.
+
+def _hostname(netloc_or_url):
+    """Host name of an origin URL or a Host header, lower-case, without brackets."""
+    text = netloc_or_url if '//' in netloc_or_url else '//' + netloc_or_url
+    try:
+        return (urlsplit(text).hostname or '').lower()
+    except ValueError:
+        return ''
+
+
+def origin_allowed(origin, request_host, configured=None):
+    """Whether a page served from ``origin`` may read API responses.
+
+    Default: pages served from this computer (loopback) and pages served from
+    the same host name the browser used to reach this API. The second case is
+    what shared mode needs: a page loaded from http://office-pc:3000 calls
+    http://office-pc:5001. Pages from any other site are refused, so a web page
+    a user happens to visit cannot read the loaded data.
+
+    ``configured`` is the CORS_ORIGINS setting: ``*`` or a comma-separated
+    list of exact origins, which replaces the default.
     """
-    configured = os.environ.get('CORS_ORIGINS', '').strip()
+    if not origin:
+        return False
+    configured = (configured or '').strip()
     if configured == '*':
-        return '*'
+        return True
     if configured:
-        return [origin.strip() for origin in configured.split(',') if origin.strip()]
-    return [r'^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$']
+        allowed = {item.strip().rstrip('/') for item in configured.split(',') if item.strip()}
+        return origin.rstrip('/') in allowed
+    if not _ORIGIN_PATTERN.match(origin):
+        return False
+    host = _hostname(origin)
+    return host in _LOOPBACK_HOSTS or host == _hostname(request_host)
 
 
-CORS(app, origins=_cors_origins(), expose_headers=['Content-Disposition'])
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get('Origin')
+    configured = os.environ.get('CORS_ORIGINS', '')
+    if origin_allowed(origin, request.host, configured):
+        response.headers['Access-Control-Allow-Origin'] = '*' if configured.strip() == '*' else origin
+        response.headers['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        if request.method == 'OPTIONS':
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = \
+                request.headers.get('Access-Control-Request-Headers', 'Content-Type')
+            response.headers['Access-Control-Max-Age'] = '600'
+    response.vary.add('Origin')
+    return response
+
 
 data_processor = DataProcessor()
 _state_lock = threading.RLock()
@@ -311,7 +355,7 @@ def generate_plot():
 # read and write files), so only enable AI plots for models you trust.
 _LLM_ALLOWED_MODULES = {
     'plotly', 'pandas', 'numpy', 'math', 'statistics', 'datetime', 'json', 're',
-    'collections', 'itertools', 'functools', 'scipy', 'sklearn',
+    'collections', 'itertools', 'functools',
 }
 _LLM_BLOCKED_BUILTINS = {
     'open', 'exec', 'eval', 'compile', 'input', 'breakpoint', 'exit', 'quit', 'help',
@@ -385,12 +429,116 @@ def generate_llm_plot():
         }), 500
 
 
+# ---------------------------------------------------------------------------
+# Built frontend (standalone package, or any FRONTEND_DIR set by the operator)
+# ---------------------------------------------------------------------------
+
+# Tells the page that the API lives at the address it was loaded from.
+_API_MARKER = '<script>window.EXCEL_VISUALISER_API_URL=window.location.origin;</script>'
+
+
+def find_frontend_dir():
+    """Directory holding a built frontend (index.html), or None.
+
+    EXCEL_VISUALIZER_FRONTEND_DIR wins; a PyInstaller build looks in its
+    bundled ``frontend`` folder.
+    """
+    candidates = [os.environ.get('EXCEL_VISUALIZER_FRONTEND_DIR')]
+    if getattr(sys, 'frozen', False):
+        candidates.append(os.path.join(getattr(sys, '_MEIPASS', ''), 'frontend'))
+    for candidate in candidates:
+        if candidate and os.path.isfile(os.path.join(candidate, 'index.html')):
+            return os.path.abspath(candidate)
+    return None
+
+
+def _serve_index(directory):
+    with open(os.path.join(directory, 'index.html'), encoding='utf-8') as handle:
+        html = handle.read()
+    html = html.replace('<head>', '<head>' + _API_MARKER, 1) if '<head>' in html else _API_MARKER + html
+    response = Response(html, mimetype='text/html')
+    response.headers['Cache-Control'] = 'no-cache'
+    return response
+
+
+@app.route('/', defaults={'path': ''}, methods=['GET'])
+@app.route('/<path:path>', methods=['GET'])
+def frontend(path):
+    """Serve the built web page when one is configured.
+
+    API routes are more specific and always win over this catch-all.
+    Unknown paths without a file extension fall back to index.html.
+    """
+    directory = app.config.get('FRONTEND_DIR')
+    if not directory:
+        abort(404)
+    if path and os.path.isfile(os.path.join(directory, path)):
+        return send_from_directory(directory, path)
+    if path and '.' in os.path.basename(path):
+        abort(404)
+    return _serve_index(directory)
+
+
+# ---------------------------------------------------------------------------
+# Server start-up
+# ---------------------------------------------------------------------------
+
+def _truthy(value):
+    return str(value or '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def server_settings(argv=None, env=None):
+    """Resolve host, port, debug and shared mode from arguments and environment.
+
+    The API exposes the loaded dataset and runs generated code, so by default
+    it listens on this computer only. Shared mode (``--shared`` or
+    EXCEL_VISUALIZER_SHARED=1) listens on every network interface so other
+    computers on the network can use it; there is no login. FLASK_HOST always
+    wins. FLASK_DEBUG=1 enables the reloader and debugger for development.
+    """
+    env = os.environ if env is None else env
+    parser = argparse.ArgumentParser(description='Excel Data Science Visualizer backend')
+    parser.add_argument('--shared', action='store_true',
+                        help='listen on the network so other computers can use the app (no login)')
+    parser.add_argument('--port', type=int, default=None, help='port to listen on (default 5001)')
+    args = parser.parse_args(argv)
+
+    shared = args.shared or _truthy(env.get('EXCEL_VISUALIZER_SHARED'))
+    host = env.get('FLASK_HOST') or ('0.0.0.0' if shared else '127.0.0.1')
+    port = args.port or int(env.get('FLASK_PORT') or 5001)
+    debug = _truthy(env.get('FLASK_DEBUG')) and not getattr(sys, 'frozen', False)
+    return {'host': host, 'port': port, 'debug': debug, 'shared': shared}
+
+
+def _network_addresses():
+    names = set()
+    try:
+        hostname = socket.gethostname()
+        names.add(hostname)
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            if not info[4][0].startswith('127.'):
+                names.add(info[4][0])
+    except OSError:
+        pass
+    return sorted(names)
+
+
+def main(argv=None):
+    settings = server_settings(argv)
+    frontend_dir = find_frontend_dir()
+    app.config['FRONTEND_DIR'] = frontend_dir
+    port = settings['port']
+    page_port = port if frontend_dir else 3000
+
+    print(f'Excel Data Science Visualizer backend on http://{settings["host"]}:{port}')
+    if frontend_dir:
+        print(f'Open http://localhost:{port} in your browser')
+    if settings['host'] not in ('127.0.0.1', 'localhost', '::1'):
+        print('Shared mode: other computers on this network can use the app. There is no login.')
+        for name in _network_addresses():
+            print(f'  From another computer: http://{name}:{page_port}')
+    app.run(host=settings['host'], port=port, debug=settings['debug'])
+
+
 if __name__ == '__main__':
-    # Local-only by default: the API exposes the loaded dataset and runs
-    # generated code, so it must not listen on the network unless asked to
-    # (Docker sets FLASK_HOST=0.0.0.0). FLASK_DEBUG=1 enables the reloader
-    # and debugger for development.
-    host = os.environ.get('FLASK_HOST', '127.0.0.1')
-    port = int(os.environ.get('FLASK_PORT', '5001'))
-    debug = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes')
-    app.run(host=host, port=port, debug=debug)
+    main()

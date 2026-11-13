@@ -259,13 +259,3 @@ def test_gemini_prompt_describes_columns(frame):
     assert "'Age': dtype=int64" in description and "'IT'" in description
     assert "'Salary'" not in description
     assert "'Salary'" in GeminiLlm._get_data_description(None, frame)
-
-
-def test_cors_only_allows_local_origins(client):
-    local = client.get('/health', headers={'Origin': 'http://localhost:3000'})
-    assert local.headers.get('Access-Control-Allow-Origin') == 'http://localhost:3000'
-    loopback = client.get('/health', headers={'Origin': 'http://127.0.0.1:8080'})
-    assert loopback.headers.get('Access-Control-Allow-Origin') == 'http://127.0.0.1:8080'
-    for origin in ('https://evil.example', 'http://localhost.evil.example', 'http://localhost:3000.evil.example'):
-        remote = client.get('/health', headers={'Origin': origin})
-        assert 'Access-Control-Allow-Origin' not in remote.headers

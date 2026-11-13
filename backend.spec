@@ -1,38 +1,46 @@
-# PyInstaller spec file for Excel Data Visualizer Backend
-# This bundles the Flask backend into a standalone executable
-
+# PyInstaller configuration for the Excel Data Visualizer backend.
+#
+# Produces a folder with one executable that runs the API and, when the React
+# app was built first (`npm run build`), also serves the web page on the same
+# port. Build from the repository root:
+#
+#   pyinstaller backend.spec --clean --noconfirm --workpath pyinstaller-work
+#
 # -*- mode: python ; coding: utf-8 -*-
+
+import os
 
 block_cipher = None
 
+# The built React app. Only index.html, its sibling files and static/ are
+# taken, so a PyInstaller work folder left inside build/ is never bundled.
+frontend = []
+if os.path.isfile(os.path.join('build', 'index.html')):
+    for name in os.listdir('build'):
+        if os.path.isfile(os.path.join('build', name)):
+            frontend.append((os.path.join('build', name), 'frontend'))
+    if os.path.isdir(os.path.join('build', 'static')):
+        frontend.append((os.path.join('build', 'static'), os.path.join('frontend', 'static')))
+else:
+    print('WARNING: build/index.html not found; the package will not include the web page. '
+          'Run "npm run build" first.')
+
 a = Analysis(
     ['start_backend.py'],
-    pathex=[],
+    # start_backend imports `app` from backend/; analysing it from here
+    # bundles every backend module and library it uses.
+    pathex=['backend'],
     binaries=[],
-    datas=[
-        ('backend', 'backend'),
-        ('requirements.txt', '.'),
-    ],
+    datas=frontend,
     hiddenimports=[
-        'flask',
-        'flask_cors',
-        'pandas',
-        'numpy',
-        'plotly',
-        'plotly.graph_objs',
-        'plotly.express',
-        'plotly.utils',
+        # pandas loads these lazily when reading .xlsx / .xls files
         'openpyxl',
         'xlrd',
-        'sklearn',
-        'seaborn',
-        'matplotlib',
-        'requests',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['tkinter', 'matplotlib', 'IPython', 'pytest'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

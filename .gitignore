@@ -136,3 +136,6 @@ dist/
 
 # Claude directory
 .claude/
+# PyInstaller work and build environments
+pyinstaller-work/
+standalone-build/
